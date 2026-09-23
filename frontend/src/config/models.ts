@@ -1,10 +1,13 @@
-export const PROVIDERS = ['openai', 'anthropic'] as const;
+import { AGENT_BACKEND } from './constants';
+
+export const PROVIDERS = ['openai', 'anthropic', 'claude_code'] as const;
 
 export type ModelProvider = (typeof PROVIDERS)[number];
 
 export const PROVIDER_LABELS: Record<ModelProvider, string> = {
   openai: 'GPT',
   anthropic: 'Claude',
+  claude_code: 'Claude Code',
 };
 
 // Within each provider, models are ordered from fastest to deepest reasoning —
@@ -82,6 +85,14 @@ export const MODELS = [
     description: 'Deepest reasoning (max)',
     inputTokens: 936000,
   },
+  // Only offered in a local session (AGENT_BACKEND); see ModelPicker.
+  {
+    id: 'claude-code',
+    provider: 'claude_code',
+    label: 'Claude Code',
+    description: 'Your Claude subscription, no web search yet',
+    inputTokens: 150000,
+  },
 ] as const satisfies readonly {
   id: string;
   provider: ModelProvider;
@@ -92,7 +103,7 @@ export const MODELS = [
 
 export type ModelType = (typeof MODELS)[number]['id'];
 
-export const DEFAULT_MODEL: ModelType = 'gpt-6-astra-medium';
+export const DEFAULT_MODEL: ModelType = AGENT_BACKEND ? 'claude-code' : 'gpt-6-astra-medium';
 
 // Presets we have removed, each pointing at its closest current replacement.
 // Mirrors RETIRED_MODELS in the backend's model_settings.py, plus the label the

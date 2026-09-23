@@ -1,6 +1,7 @@
 import { FC, RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { isProviderKeyConfigured } from '../../client';
+import { AGENT_BACKEND } from '../../config/constants';
 import { useNodeContentStore } from '../../stores/nodeContentStore';
 import { useResearchStore } from '../../stores/researchStore';
 import { useUIStateStore } from '../../stores/uiStateStore';
@@ -413,7 +414,8 @@ export const KickstartModal: FC<KickstartModalProps> = ({ onClose }) => {
   // Both generations run on OpenAI, so without that key neither can succeed:
   // adding it — not retrying — is the way out of the error. Re-read whenever
   // the settings modal opens or closes, so a key added there is seen at once.
-  const needsApiKey = !settingsOpen && !isProviderKeyConfigured('openai');
+  // A local Claude Code session runs the kickstart on the CLI, not OpenAI.
+  const needsApiKey = !settingsOpen && !AGENT_BACKEND && !isProviderKeyConfigured('openai');
 
   const [notes, setNotes] = useState('');
 

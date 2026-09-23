@@ -3,7 +3,10 @@ Configuration settings for the Talleyrand backend.
 Should be split in the future, so that each app registers its own settings.
 """
 
-from pydantic import AnyUrl, EmailStr, Field, HttpUrl
+import secrets
+from typing import Literal, Self
+
+from pydantic import AnyUrl, EmailStr, Field, HttpUrl, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,13 +26,15 @@ class Settings(BaseSettings):
     )
 
     # JWT Settings
+    # Required (at least 32 characters) unless local_mode is on; checked in
+    # _check_mode below rather than by a field constraint, so local mode can
+    # leave it unset.
     jwt_secret_key: str = Field(
-        ...,
+        default="",
         description=(
             "Secret key used for signing JWT tokens. "
             "Must be a unique random value per deployment, generated with `openssl rand -hex 32`."
         ),
-        min_length=32,
     )
     jwt_algorithm: str = Field(
         default="HS256",
@@ -44,13 +49,11 @@ class Settings(BaseSettings):
         description="Expiration time for JWT refresh tokens in days",
     )
 
-    # Google OAuth Settings
-    google_client_id: str = Field(default="", description="Google OAuth client ID", min_length=1)
-    google_client_secret: str = Field(
-        default="", description="Google OAuth client secret", min_length=1
-    )
-    google_redirect_uri: HttpUrl = Field(
-        ...,
+    # Google OAuth Settings. Required unless local_mode is on (see _check_mode).
+    google_client_id: str = Field(default="", description="Google OAuth client ID")
+    google_client_secret: str = Field(default="", description="Google OAuth client secret")
+    google_redirect_uri: HttpUrl | None = Field(
+        default=None,
         description="Redirect URI for Google OAuth callbacks",
     )
     google_token_url: HttpUrl = Field(
@@ -123,6 +126,69 @@ class Settings(BaseSettings):
         default=False,
         description="Log full LLM responses to console",
     )
+
+    # Local mode: one person running Talleyrand on their own machine
+    # (./start-local.sh). Sign-in is replaced by one fixed user, so the server
+    # must only be reachable from this machine: bind to 127.0.0.1, and main.py
+    # refuses requests naming any other host.
+    local_mode: bool = Field(
+        default=False,
+        description="Skip Google sign-in and act as local_user_email. Never enable on a server.",
+    )
+    local_user_email: EmailStr = Field(
+        default="local@example.com",
+        description=(
+            "Who the local session acts as. Cases belong to an email, so setting this to "
+            "the address you signed in with before opens the cases you already have."
+        ),
+    )
+    agent_backend: Literal["claude_code"] | None = Field(
+        default=None,
+        description=(
+            "Run model calls through a locally signed-in agent CLI instead of API keys. "
+            "Requires local_mode."
+        ),
+    )
+    claude_code_executable: str = Field(default="claude", description="The `claude` CLI to run")
+    claude_code_model: str = Field(
+        default="sonnet",
+        description="Model alias passed to `claude --model` for every Claude Code call",
+    )
+    claude_code_timeout_seconds: float = Field(
+        default=900.0,
+        description="Longest one Claude Code call may run before it is killed",
+    )
+    claude_code_concurrency: int = Field(
+        default=2,
+        description=(
+            "How many Claude Code calls may run at once. They all draw on the same "
+            "subscription usage window."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_mode(self) -> Self:
+        if self.agent_backend and not self.local_mode:
+            raise ValueError("agent_backend requires local_mode (start with ./start-local.sh)")
+        if self.local_mode:
+            # ponytail: a fresh key per process — it only signs the local user's
+            # stream tickets, which a restart would drop anyway.
+            if not self.jwt_secret_key:
+                self.jwt_secret_key = secrets.token_hex(32)
+            return self
+        missing = [
+            name
+            for name in ("google_client_id", "google_client_secret", "google_redirect_uri")
+            if not getattr(self, name)
+        ]
+        if missing:
+            raise ValueError(f"{', '.join(missing)} must be set unless local_mode is on")
+        if len(self.jwt_secret_key) < 32:
+            raise ValueError(
+                "jwt_secret_key must be at least 32 characters; "
+                "generate one with `openssl rand -hex 32`"
+            )
+        return self
 
 
 settings = Settings()

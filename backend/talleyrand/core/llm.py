@@ -5,8 +5,13 @@ stream_text dispatches streaming chat queries to OpenAI (Responses API) or
 Anthropic (Messages API) based on the selected model's provider; it is used by
 the node-query services. It yields the answer as TextChunks interleaved with
 the SourceChunks describing what its web searches turned up. parse_structured
-is the one-shot structured-output call (OpenAI-only) used by kickstart, the
+is the one-shot structured-output call (OpenAI) used by kickstart, the
 suggesters, reports, and auto-naming.
+
+In a local Claude Code session (settings.agent_backend) both run through the
+operator's `claude` CLI instead (core/claude_code.py): answers for questions set
+to the "claude-code" preset, and every structured call, whatever model its
+feature names.
 """
 
 import asyncio
@@ -39,6 +44,9 @@ from openai.types.responses import (
 )
 from pydantic import BaseModel
 
+from talleyrand.core import claude_code
+from talleyrand.core.claude_code import ClaudeCodeError
+from talleyrand.core.config import settings
 from talleyrand.core.llm_logging import log_response, log_structured_response
 from talleyrand.core.model_settings import (
     ANTHROPIC_MAX_OUTPUT_TOKENS,
@@ -97,7 +105,15 @@ ANTHROPIC_PLAIN_PROSE_INSTRUCTION = (
 ANTHROPIC_REFUSAL_FALLBACK_BETA = "server-side-fallback-2026-06-01"
 ANTHROPIC_REFUSAL_FALLBACK_MODEL = "claude-opus-4-8"
 
-PROVIDER_LABELS: dict[Provider, str] = {"openai": "OpenAI", "anthropic": "Anthropic"}
+PROVIDER_LABELS: dict[Provider, str] = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "claude_code": "Claude Code",
+}
+
+# What a Claude Code answer could not use is said in the answer itself, never
+# silently dropped.
+CLAUDE_CODE_NO_SEARCH = "web search is not available with Claude Code yet, so this answer draws on the model's own knowledge"
 
 
 class MissingApiKeyError(Exception):
@@ -113,6 +129,8 @@ class MissingApiKeyError(Exception):
 
 def resolve_api_key(model: ModelConfig, openai_api_key: str, anthropic_api_key: str) -> str:
     """Pick the API key matching the model's provider."""
+    if model.provider == "claude_code":
+        return ""  # runs on the operator's signed-in CLI
     api_key = openai_api_key if model.provider == "openai" else anthropic_api_key
     if not api_key:
         raise MissingApiKeyError(model.provider)
@@ -126,6 +144,8 @@ def provider_error_detail(exc: Exception) -> str | None:
     Lets the UI show the provider's own explanation (billing, rate limits, overload)
     instead of a generic failure message.
     """
+    if isinstance(exc, ClaudeCodeError):
+        return f"{PROVIDER_LABELS['claude_code']}: {exc}"
     if isinstance(exc, OpenAIAPIError):
         provider_label = PROVIDER_LABELS["openai"]
     elif isinstance(exc, AnthropicAPIError):
@@ -172,6 +192,10 @@ async def parse_structured[SchemaT: BaseModel](
     StructuredGenerationError. user_content is either a plain string or
     Responses-API content parts (input_text + input_file) when PDFs are attached.
     """
+    if settings.agent_backend == "claude_code":
+        return await _parse_structured_claude_code(
+            caller=caller, system_prompt=system_prompt, user_content=user_content, schema=schema
+        )
     client = AsyncOpenAI(api_key=api_key)
     try:
         response = await client.responses.parse(
@@ -194,6 +218,39 @@ async def parse_structured[SchemaT: BaseModel](
 
     log_structured_response(caller, response.output_parsed)
     return response.output_parsed
+
+
+async def _parse_structured_claude_code[SchemaT: BaseModel](
+    *,
+    caller: str,
+    system_prompt: str,
+    user_content: str | list[dict],
+    schema: type[SchemaT],
+) -> SchemaT:
+    """
+    parse_structured on Claude Code: the CLI enforces the schema itself
+    (--json-schema) and the result is still validated here. There is no web
+    search and no PDF input yet; a PDF is refused rather than dropped, since
+    structured output has nowhere to say it went unread.
+    """
+    if isinstance(user_content, list):
+        if any(part.get("type") == "input_file" for part in user_content):
+            raise StructuredGenerationError(
+                "Claude Code can't read PDF documents yet. Remove the PDFs, or paste their "
+                "text as a text document."
+            )
+        user_content = "\n\n".join(part["text"] for part in user_content)
+    try:
+        result = await claude_code.run(
+            system_prompt=system_prompt,
+            prompt=user_content,
+            json_schema=schema.model_json_schema(),
+        )
+        parsed = schema.model_validate(result.get("structured_output"))
+    except (ClaudeCodeError, ValueError) as e:
+        raise StructuredGenerationError(f"{PROVIDER_LABELS['claude_code']}: {e}") from e
+    log_structured_response(caller, parsed)
+    return parsed
 
 
 @dataclass
@@ -293,9 +350,10 @@ async def count_prompt_tokens(
     """
     What a request carrying this prompt counts as, by the counter that will
     judge it: tiktoken for OpenAI models, Anthropic's token-counting endpoint
-    (which needs the API key) for Claude models.
+    (which needs the API key) for Claude models. Claude Code has no counter to
+    ask, so tiktoken estimates it against a budget with room for the error.
     """
-    if model.provider == "openai":
+    if model.provider in ("openai", "claude_code"):
         # tiktoken counting is CPU-bound — keep it off the event loop
         return await asyncio.to_thread(count_tokens, system_prompt + user_prompt, model.api_model)
     client = AsyncAnthropic(api_key=api_key)
@@ -417,6 +475,15 @@ async def stream_text(
     if pdf_documents:
         logger.info(f"Attaching {len(pdf_documents)} PDF document(s) to request")
 
+    if model.provider == "claude_code":
+        return await _stream_claude_code(
+            caller=caller,
+            instructions=instructions,
+            prompt=cached_prefix + user_prompt,
+            pdf_documents=pdf_documents,
+            web_search_enabled=web_search_enabled,
+            verbosity=verbosity,
+        )
     if model.provider == "openai":
         return await _stream_openai(
             caller=caller,
@@ -441,6 +508,48 @@ async def stream_text(
         web_search_enabled=web_search_enabled,
         verbosity=verbosity,
     )
+
+
+async def _stream_claude_code(
+    *,
+    caller: str,
+    instructions: str,
+    prompt: str,
+    pdf_documents: list[PdfAttachment],
+    web_search_enabled: bool,
+    verbosity: Literal["low", "medium"],
+) -> AsyncGenerator[StreamChunk, None]:
+    """
+    An answer from Claude Code, delivered whole: the CLI runs to completion
+    before this returns, so its errors raise here like the API providers' do,
+    and the generator then yields the finished answer. Claude Code caches the
+    prompt's stable opening on its own, so the prompt goes as one piece.
+    """
+    if verbosity == "low":
+        instructions += ANTHROPIC_CONCISE_INSTRUCTION
+    instructions += ANTHROPIC_MARKDOWN_LINK_INSTRUCTION
+
+    notices = []
+    if web_search_enabled:
+        notices.append(CLAUDE_CODE_NO_SEARCH)
+    if pdf_documents:
+        count = len(pdf_documents)
+        notices.append(
+            f"{count} attached PDF{'s' if count > 1 else ''} could not be read: Claude Code "
+            "takes text documents only for now"
+        )
+
+    result = await claude_code.run(system_prompt=instructions, prompt=prompt)
+    answer = str(result.get("result") or "")
+    log_response(caller, answer)
+
+    async def stream_generator() -> AsyncGenerator[StreamChunk, None]:
+        # An empty answer stays empty, so the job still reports it as one.
+        if notices and answer:
+            yield TextChunk(f"*Note: {'; '.join(notices)}.*\n\n")
+        yield TextChunk(answer)
+
+    return stream_generator()
 
 
 def _release_request_body(stream: object) -> None:

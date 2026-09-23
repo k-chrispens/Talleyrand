@@ -21,6 +21,7 @@ export const clearApiKeys = (): void => {
 
 /** Whether the API key a provider's models need is stored on this device. */
 export const isProviderKeyConfigured = (provider: ModelProvider): boolean =>
+  provider === 'claude_code' ||
   !!(provider === 'openai' ? getOpenAIApiKey() : getAnthropicApiKey());
 
 export const isWebSearchEnabled = (): boolean => {

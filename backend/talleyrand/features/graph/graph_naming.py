@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from talleyrand.core.llm import parse_structured
 from talleyrand.core.prompts import TALLEYRAND_DESCRIPTION
 from talleyrand.features.auth_jwt import router as auth_app
-from talleyrand.features.graph.dependencies import get_openai_api_key
+from talleyrand.features.graph.dependencies import get_auxiliary_api_key
 from talleyrand.features.graph.models import (
     GraphDataRepository,
     get_graph_repo,
@@ -70,7 +70,7 @@ def _build_naming_context(questions: list[tuple[str, str]]) -> str:
 
 async def generate_name(
     graph_id: str,
-    openai_api_key: Annotated[str, Depends(get_openai_api_key)],
+    openai_api_key: Annotated[str, Depends(get_auxiliary_api_key)],
     user: Annotated[User, Depends(auth_app.require_auth)],
     repo: Annotated[GraphDataRepository, Depends(get_graph_repo)],
 ):

@@ -28,6 +28,26 @@ Also in the box: insight highlights that feed later answers, cross-links between
 
 Keys are entered in the app's Settings, kept in your browser, and sent with each request. They are never stored on the server, so a self-hosted instance needs no model API keys of its own.
 
+## Run it on your own machine with your Claude subscription
+
+No Google project, no sign-in, no API keys: every model call runs on your own signed-in [Claude Code](https://claude.com/claude-code), drawing on your Claude plan's usage limits.
+
+**You need:** a Docker runtime (Docker Desktop, OrbStack, …), [pnpm](https://pnpm.io), [uv](https://docs.astral.sh/uv/) (or pdm), and Claude Code signed in with your subscription: `claude auth login`.
+
+```bash
+./start-local.sh
+```
+
+It starts MongoDB in Docker and the backend and frontend on this machine, then opens [http://localhost:3000](http://localhost:3000). Pick **Claude Code** in the model picker (it is the default in this mode). Ctrl-C stops the session; MongoDB keeps running (`docker compose stop mongodb` stops it).
+
+What to know:
+
+- **Local only.** There is no sign-in, so both servers listen on 127.0.0.1 only and the backend refuses requests for any other host. Never run this mode on a server.
+- **Every call counts against your plan**, including the kickstart, suggestions, summaries and naming, not just answers. At most two run at once (`CLAUDE_CODE_CONCURRENCY`).
+- **Model:** `sonnet` by default; set `CLAUDE_CODE_MODEL` (e.g. `opus`) in `backend/.env` to change it.
+- **Not yet:** web search (answers say so at the top; turn search off in Settings to drop the note), reading PDFs (use text documents), and dictation.
+- **Your existing cases** belong to the email you signed in with. Set `LOCAL_USER_EMAIL` to that address in `backend/.env` to open them.
+
 ## Run it locally
 
 **You need:** Docker Desktop (or Docker Engine + Compose v2), and a Google Cloud account to create OAuth credentials. The app will not start without Google OAuth configured — sign-in is the only way in.

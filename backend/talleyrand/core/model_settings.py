@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal, cast
 
+from talleyrand.core.config import settings
+
 type SupportedModel = Literal[
     "gpt-5.6-luna",
     "gpt-5.6-terra",
@@ -12,9 +14,10 @@ type SupportedModel = Literal[
     "claude-fable-5-1-medium",
     "claude-fable-5-1-high",
     "claude-fable-5-1-max",
+    "claude-code",
 ]
 
-type Provider = Literal["openai", "anthropic"]
+type Provider = Literal["openai", "anthropic", "claude_code"]
 
 # "none" is an explicit GPT-5.6 effort level meaning "do not reason at all" —
 # distinct from reasoning_effort=None, which means "send no effort parameter"
@@ -107,6 +110,18 @@ MODEL_WINDOWS: dict[str, ModelWindow] = {
     "claude-fable-5-1": _anthropic_window(
         "claude-fable-5-1", context_tokens=1_000_000, max_output_tokens=128_000
     ),
+    # The operator's `claude` CLI (core/claude_code.py); which model it runs is
+    # settings.claude_code_model, so these are conservative budgets rather than
+    # a published window. 200K is the standard Claude window; the input budget
+    # leaves room for the answer and for counting with tiktoken, which runs
+    # low on Claude's tokenizer.
+    "claude-code": ModelWindow(
+        provider="claude_code",
+        api_model="claude-code",
+        context_tokens=200_000,
+        max_output_tokens=32_000,
+        max_input_tokens=150_000,
+    ),
 }
 
 
@@ -117,6 +132,17 @@ def get_model_window(api_model: str) -> ModelWindow:
     except KeyError:
         known = ", ".join(MODEL_WINDOWS)
         raise ValueError(f"No context window recorded for '{api_model}'. Known: {known}") from None
+
+
+def auxiliary_window(api_model: str) -> ModelWindow:
+    """
+    The window a fixed-model feature (kickstart, suggestions, reports) fits its
+    prompt to: its own API model's, or Claude Code's in a Claude Code session,
+    which runs that work instead.
+    """
+    if settings.agent_backend == "claude_code":
+        return MODEL_WINDOWS["claude-code"]
+    return get_model_window(api_model)
 
 
 @dataclass
@@ -247,6 +273,15 @@ MODEL_CONFIGS: dict[SupportedModel, ModelConfig] = {
         reasoning_effort="max",
         refusal_fallback=True,
         plain_prose=True,
+    ),
+    # Only usable in a local session (settings.agent_backend == "claude_code").
+    "claude-code": ModelConfig(
+        id="claude-code",
+        api_model="claude-code",
+        label="Claude Code",
+        description="Your Claude subscription, no web search yet",
+        order=11,
+        reasoning_effort=None,
     ),
 }
 

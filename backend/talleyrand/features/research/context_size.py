@@ -106,7 +106,8 @@ async def context_size(
     # Anthropic's counter needs the key the answer would use; without it, or
     # when the count fails, tiktoken stands in and the meter says so.
     api_key = x_anthropic_api_key if window.provider == "anthropic" else x_openai_api_key
-    estimated = window.provider == "anthropic" and not api_key
+    # Claude Code has no counter to ask: tiktoken estimates it, below.
+    estimated = window.provider == "claude_code" or (window.provider == "anthropic" and not api_key)
     tokens: int | None = None
     if not estimated:
         try:

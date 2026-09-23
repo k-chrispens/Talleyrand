@@ -8,9 +8,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from talleyrand.core.config import settings
 from talleyrand.core.llm import StructuredGenerationError
+from talleyrand.features.auth_jwt.router import require_auth
 from talleyrand.features.auth_jwt.router import router as auth_jwt_router
 from talleyrand.features.demo_cases.seed import seed_demo_cases
 from talleyrand.features.graph.router import router as graph_router
@@ -22,6 +24,7 @@ from talleyrand.features.transcription.router import router as transcription_rou
 from talleyrand.infra.body_limit import BodySizeLimitMiddleware
 from talleyrand.infra.db import lifespan_db
 from talleyrand.infra.log_redaction import install_query_string_redaction
+from talleyrand.models.user import User
 
 logging.basicConfig(level=settings.logging_level)
 
@@ -66,6 +69,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def apply_local_mode(app: FastAPI, email: str) -> None:
+    """
+    Sign every request in as one local user, and refuse any request not
+    addressed to this machine. With no sign-in, the network is the only
+    boundary: the server binds to 127.0.0.1 (pdm run local), and the host
+    check stops a web page from reaching it through DNS rebinding.
+    """
+    local_user = User(id="local", email=email, name="Local")
+    app.dependency_overrides[require_auth] = lambda: local_user
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
+
+
+if settings.local_mode:
+    apply_local_mode(app, settings.local_user_email)
 
 
 # A failed structured LLM call is the caller's provider problem (bad key,

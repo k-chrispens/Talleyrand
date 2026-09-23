@@ -14,6 +14,12 @@ export const SITE_URL = 'https://talleyrand.app';
 // or self-host without going looking for it.
 export const REPO_URL = 'https://github.com/Sage-Future/Talleyrand';
 
+// Set by ./start-local.sh, alongside the backend's AGENT_BACKEND: model calls
+// run on the operator's signed-in Claude Code, so no API key is needed.
+// ponytail: a build-time flag the script keeps in step with the backend; ask
+// the backend instead if the two ever get started separately.
+export const AGENT_BACKEND = import.meta.env.VITE_AGENT_BACKEND || null;
+
 export const BACKEND_CONFIG = {
   // Full HTTP URL for REST API calls
   BACKEND_HTTP_URL: `${isSecure ? 'https' : 'http'}://${backendHost}/backend`,

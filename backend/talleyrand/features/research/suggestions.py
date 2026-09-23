@@ -9,9 +9,9 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from talleyrand.core.llm import parse_structured
-from talleyrand.core.model_settings import get_model_window
+from talleyrand.core.model_settings import auxiliary_window
 from talleyrand.core.prompts import TALLEYRAND_DESCRIPTION
-from talleyrand.features.graph.dependencies import get_openai_api_key
+from talleyrand.features.graph.dependencies import get_auxiliary_api_key
 from talleyrand.features.graph.dtos import GraphNoId
 from talleyrand.features.research.context_builder import build_research_context
 from talleyrand.features.research.context_fitting import fit_research_context
@@ -22,7 +22,7 @@ from talleyrand.features.research.dtos import (
 )
 
 MAX_SUGGESTIONS = 3
-SUGGESTER_MODEL = get_model_window("gpt-6-astra")
+SUGGESTER_MODEL = auxiliary_window("gpt-6-astra")
 SUGGESTER_REASONING_EFFORT = "low"
 
 INSTRUCTIONS = (
@@ -143,7 +143,7 @@ async def get_research_suggestions(
 async def suggest(
     node_id: UUID,
     payload: ResearchSuggestRequestDTO,
-    openai_api_key: Annotated[str, Depends(get_openai_api_key)],
+    openai_api_key: Annotated[str, Depends(get_auxiliary_api_key)],
 ) -> ResearchSuggestResponseDTO:
     """Endpoint for transient question suggestions (selection popup, canvas)."""
     try:

@@ -16,9 +16,9 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
 from talleyrand.core.llm import parse_structured
-from talleyrand.core.model_settings import get_model_window
+from talleyrand.core.model_settings import auxiliary_window
 from talleyrand.core.prompts import TALLEYRAND_DESCRIPTION
-from talleyrand.features.graph.dependencies import get_openai_api_key
+from talleyrand.features.graph.dependencies import get_auxiliary_api_key
 from talleyrand.features.graph.dtos import GraphNoId
 from talleyrand.features.research.context_builder import (
     build_question_tree,
@@ -28,7 +28,7 @@ from talleyrand.features.research.context_fitting import fit_research_context
 from talleyrand.features.research.dtos import ReportRequestDTO, ReportResponseDTO
 from talleyrand.features.research.ref_tokens import outline_ref_tokens
 
-REPORT_MODEL = get_model_window("gpt-6-astra")
+REPORT_MODEL = auxiliary_window("gpt-6-astra")
 REPORT_REASONING_EFFORT = "xhigh"
 
 INSTRUCTIONS = (
@@ -135,7 +135,7 @@ async def _build_report_user_content(graph: GraphNoId, guidance: str, openai_api
 
 async def generate_report(
     payload: ReportRequestDTO,
-    openai_api_key: Annotated[str, Depends(get_openai_api_key)],
+    openai_api_key: Annotated[str, Depends(get_auxiliary_api_key)],
 ) -> ReportResponseDTO:
     """Generate a Markdown report summarizing the whole case."""
     graph = payload.graph
