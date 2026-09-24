@@ -44,7 +44,7 @@ from openai.types.responses import (
 )
 from pydantic import BaseModel
 
-from talleyrand.core import claude_code, hermes
+from talleyrand.core import claude_code, hermes, kagi
 from talleyrand.core.agent_cli import AgentError
 from talleyrand.core.config import settings
 from talleyrand.core.llm_logging import log_response, log_structured_response
@@ -194,7 +194,11 @@ async def parse_structured[SchemaT: BaseModel](
     """
     if settings.agent_backend is not None:
         return await _parse_structured_agent(
-            caller=caller, system_prompt=system_prompt, user_content=user_content, schema=schema
+            caller=caller,
+            provider=settings.agent_backend,
+            system_prompt=system_prompt,
+            user_content=user_content,
+            schema=schema,
         )
     client = AsyncOpenAI(api_key=api_key)
     try:
@@ -223,18 +227,19 @@ async def parse_structured[SchemaT: BaseModel](
 async def _parse_structured_agent[SchemaT: BaseModel](
     *,
     caller: str,
+    provider: Provider,
     system_prompt: str,
     user_content: str | list[dict],
     schema: type[SchemaT],
 ) -> SchemaT:
     """
-    parse_structured on the session's agent CLI. Claude Code enforces the
+    parse_structured on an agent CLI. Claude Code enforces the
     schema itself (--json-schema); Hermes is asked for it in the instructions.
     Either way the result is validated here. There is no web search and no PDF
     input yet; a PDF is refused rather than dropped, since structured output
     has nowhere to say it went unread.
     """
-    label = PROVIDER_LABELS[settings.agent_backend]
+    label = PROVIDER_LABELS[provider]
     if isinstance(user_content, list):
         if any(part.get("type") == "input_file" for part in user_content):
             raise StructuredGenerationError(
@@ -243,7 +248,7 @@ async def _parse_structured_agent[SchemaT: BaseModel](
             )
         user_content = "\n\n".join(part["text"] for part in user_content)
     try:
-        if settings.agent_backend == "hermes":
+        if provider == "hermes":
             parsed = await hermes.run_structured(
                 system_prompt=system_prompt, prompt=user_content, schema=schema
             )
@@ -313,6 +318,9 @@ type StreamChunk = TextChunk | SourceChunk
 # the answer never used. The full count is reported separately, so a truncated
 # list never under-reports how wide the model actually cast its net.
 MAX_WEB_SOURCES = 60
+
+# Queries an agent answer's web search may run (each billed by Kagi).
+MAX_SEARCH_QUERIES = 3
 
 
 class WebSourceCollector:
@@ -487,7 +495,8 @@ async def stream_text(
             caller=caller,
             provider=model.provider,
             instructions=instructions,
-            prompt=cached_prefix + user_prompt,
+            cached_prefix=cached_prefix,
+            user_prompt=user_prompt,
             pdf_documents=pdf_documents,
             web_search_enabled=web_search_enabled,
             verbosity=verbosity,
@@ -523,7 +532,8 @@ async def _stream_agent(
     caller: str,
     provider: Provider,
     instructions: str,
-    prompt: str,
+    cached_prefix: str,
+    user_prompt: str,
     pdf_documents: list[PdfAttachment],
     web_search_enabled: bool,
     verbosity: Literal["low", "medium"],
@@ -534,19 +544,29 @@ async def _stream_agent(
     and the generator then yields the finished answer. The prompt goes as one
     piece; the CLIs' providers cache its stable opening on their own. What the
     answer could not use is said in the answer itself, never silently dropped.
+
+    The agent has no tools, so with search on Talleyrand searches for it
+    (_search_the_web) and appends the results, after the cacheable opening.
+    Every result is reported as a source; the ones the answer links to are
+    marked cited.
     """
     label = PROVIDER_LABELS[provider]
     # Neither CLI takes a verbosity setting, so it is asked for in the prompt.
     if verbosity == "low":
         instructions += ANTHROPIC_CONCISE_INSTRUCTION
     instructions += ANTHROPIC_MARKDOWN_LINK_INSTRUCTION
+    prompt = cached_prefix + user_prompt
 
     notices = []
+    results: list[kagi.SearchResult] = []
     if web_search_enabled:
-        notices.append(
-            f"web search is not available with {label} yet, so this answer draws on the "
-            "model's own knowledge"
-        )
+        try:
+            results = await _search_the_web(provider, user_prompt)
+        except (kagi.KagiError, StructuredGenerationError) as e:
+            notices.append(
+                f"web search did not run ({e}), so this answer draws on the model's own knowledge"
+            )
+        prompt += _search_results_section(results)
     if pdf_documents:
         # Readable PDFs reach an agent as text (query_service); these had none.
         names = ", ".join(doc.filename for doc in pdf_documents)
@@ -568,8 +588,63 @@ async def _stream_agent(
         if notices and answer:
             yield TextChunk(f"*Note: {'; '.join(notices)}.*\n\n")
         yield TextChunk(answer)
+        for r in results:
+            # ponytail: cited means linked verbatim; a reworded URL counts as uncited.
+            yield SourceChunk(
+                WebSource(url=r.url, title=r.title, page_age=r.published, cited=r.url in answer)
+            )
 
     return stream_generator()
+
+
+class SearchQueries(BaseModel):
+    queries: list[str]
+
+
+SEARCH_QUERY_INSTRUCTIONS = f"""You write web search queries for a research assistant.
+The user message is a research case: its question tree and, at the end, the CURRENT QUESTION.
+Write up to {MAX_SEARCH_QUERIES} short keyword queries whose results would help answer the
+CURRENT QUESTION. Each must stand alone: spell out what the case refers to, since the search
+engine sees only the query."""
+
+
+async def _search_the_web(provider: Provider, case_body: str) -> list[kagi.SearchResult]:
+    """
+    Search results for the question that ends case_body: the agent writes the
+    queries (one small structured call), Kagi runs them.
+    """
+    if not settings.kagi_api_key:
+        # Checked first, so a missing key does not spend a query-writing call.
+        raise kagi.KagiError("it needs a Kagi API key, KAGI_API_KEY in backend/.env")
+    # ponytail: queries come from the tree and question alone, not the brief and
+    # documents, to keep this call small.
+    planned = await _parse_structured_agent(
+        caller="web_search_queries",
+        provider=provider,
+        system_prompt=SEARCH_QUERY_INSTRUCTIONS,
+        user_content=case_body,
+        schema=SearchQueries,
+    )
+    queries = [q.strip() for q in planned.queries if q.strip()][:MAX_SEARCH_QUERIES]
+    if not queries:
+        return []
+    results = await kagi.search(queries)
+    logger.info(f"Kagi: {len(queries)} queries, {len(results)} results")
+    return results
+
+
+def _search_results_section(results: list[kagi.SearchResult]) -> str:
+    if not results:
+        return ""
+    lines = [
+        "\n\nWEB SEARCH RESULTS (found for the CURRENT QUESTION just now; these are the "
+        "only web sources you have, so cite the ones you use as Markdown links to their "
+        "exact URLs):"
+    ]
+    for n, r in enumerate(results, start=1):
+        dated = f" ({r.published})" if r.published else ""
+        lines.append(f"[{n}] {r.title}{dated}\n    {r.url}\n    {r.snippet}")
+    return "\n".join(lines)
 
 
 def _release_request_body(stream: object) -> None:

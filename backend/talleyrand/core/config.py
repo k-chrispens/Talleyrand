@@ -167,6 +167,13 @@ class Settings(BaseSettings):
         default="gpt-6-astra",
         description="Model passed to `hermes chat --model` for every Hermes call",
     )
+    kagi_api_key: str = Field(
+        default="",
+        description=(
+            "Kagi Search API key. Agent answers with web search on search through Kagi "
+            "(billed per query); without it they say search is unavailable."
+        ),
+    )
     agent_timeout_seconds: float = Field(
         default=900.0,
         gt=0,
