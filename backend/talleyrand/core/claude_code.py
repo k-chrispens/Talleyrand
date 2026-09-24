@@ -38,7 +38,10 @@ class ClaudeCodeError(AgentError):
 
 
 async def run(*, system_prompt: str, prompt: str, json_schema: dict | None = None) -> dict:
-    """Run one `claude -p` call and return its terminal `result` event."""
+    """
+    Run one `claude -p` call and return its terminal `result` event, with the
+    model its init event reported (the alias resolved) added as "model".
+    """
     args = [
         settings.claude_code_executable,
         "-p",
@@ -64,7 +67,8 @@ async def run(*, system_prompt: str, prompt: str, json_schema: dict | None = Non
     events, stderr, returncode = await run_cli(
         args, prompt, error=ClaudeCodeError, env=env, on_event=_check_init
     )
-    if not any(_is_init(e) for e in events):
+    init = next((e for e in events if _is_init(e)), None)
+    if init is None:
         raise ClaudeCodeError(
             "Claude Code did not report its setup (no init event), so its answer is not "
             f"trusted: {stderr_tail(stderr, returncode)}"
@@ -76,7 +80,7 @@ async def run(*, system_prompt: str, prompt: str, json_schema: dict | None = Non
         )
     if result.get("is_error") or result.get("subtype") != "success":
         raise ClaudeCodeError(str(result.get("result") or result.get("subtype") or "failed"))
-    return result
+    return result | {"model": init.get("model")}
 
 
 def _is_init(event: dict[str, Any]) -> bool:

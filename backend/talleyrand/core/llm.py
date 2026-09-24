@@ -309,7 +309,21 @@ class SourceChunk:
     source: WebSource
 
 
-type StreamChunk = TextChunk | SourceChunk
+@dataclass(frozen=True)
+class ExecutionChunk:
+    """
+    How an agent CLI answer was produced, sent once with it: the provider, the
+    model the CLI reported, and notes on what the answer could not use (web
+    search, unreadable PDFs). Kept apart from the answer text, so the notes
+    are shown to the reader but never fed back to a model as part of the case.
+    """
+
+    provider: str
+    model: str | None
+    notes: tuple[str, ...] = ()
+
+
+type StreamChunk = TextChunk | SourceChunk | ExecutionChunk
 
 # A single search is enough to blow past any sane list: one OpenAI search
 # returned 39 results in testing, and an answer may run several — ordinary
@@ -543,7 +557,8 @@ async def _stream_agent(
     before this returns, so its errors raise here like the API providers' do,
     and the generator then yields the finished answer. The prompt goes as one
     piece; the CLIs' providers cache its stable opening on their own. What the
-    answer could not use is said in the answer itself, never silently dropped.
+    answer could not use is reported with it (ExecutionChunk), never silently
+    dropped.
 
     The agent has no tools, so with search on Talleyrand searches for it
     (_search_the_web) and appends the results, after the cacheable opening.
@@ -557,36 +572,37 @@ async def _stream_agent(
     instructions += ANTHROPIC_MARKDOWN_LINK_INSTRUCTION
     prompt = cached_prefix + user_prompt
 
-    notices = []
+    notes = []
     results: list[kagi.SearchResult] = []
     if web_search_enabled:
         try:
             results = await _search_the_web(provider, user_prompt)
         except (kagi.KagiError, StructuredGenerationError) as e:
-            notices.append(
-                f"web search did not run ({e}), so this answer draws on the model's own knowledge"
+            notes.append(
+                f"Web search did not run ({e}), so this answer draws on the model's own knowledge."
             )
         prompt += _search_results_section(results)
     if pdf_documents:
         # Readable PDFs reach an agent as text (query_service); these had none.
         names = ", ".join(doc.filename for doc in pdf_documents)
-        notices.append(
+        notes.append(
             f"{names} could not be read: {label} reads a PDF's text, and "
             f"{'these have' if len(pdf_documents) > 1 else 'this has'} none, a password, "
-            "or damage"
+            "or damage."
         )
 
     if provider == "hermes":
         answer = await hermes.run(system_prompt=instructions, prompt=prompt)
+        # Hermes runs the model it is given; its output does not name one.
+        model = settings.hermes_model
     else:
         result = await claude_code.run(system_prompt=instructions, prompt=prompt)
         answer = str(result.get("result") or "")
+        model = result.get("model")
     log_response(caller, answer)
 
     async def stream_generator() -> AsyncGenerator[StreamChunk, None]:
-        # An empty answer stays empty, so the job still reports it as one.
-        if notices and answer:
-            yield TextChunk(f"*Note: {'; '.join(notices)}.*\n\n")
+        yield ExecutionChunk(provider=provider, model=model, notes=tuple(notes))
         yield TextChunk(answer)
         for r in results:
             # ponytail: cited means linked verbatim; a reworded URL counts as uncited.

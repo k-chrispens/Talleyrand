@@ -110,6 +110,7 @@ async def test_an_answer_searches_and_cites_what_it_links(key, agent):
     assert (
         "[1] Congress of Vienna (2020-01-01)\n    https://example.org/vienna\n    1815." in prompt
     )
+    assert chunks[0].notes == ()
     assert [c.text for c in chunks if isinstance(c, TextChunk)] == [
         "It held ([source](https://example.org/vienna))."
     ]
@@ -133,7 +134,7 @@ async def test_without_a_key_nothing_is_spent_and_the_answer_says_so(agent):
     chunks = await _answer()
 
     assert "query_prompt" not in agent
-    assert chunks[0].text.startswith("*Note: web search did not run (it needs a Kagi API key")
+    assert chunks[0].notes[0].startswith("Web search did not run (it needs a Kagi API key")
 
 
 @pytest.mark.asyncio
@@ -145,5 +146,5 @@ async def test_a_failed_search_still_answers_and_says_so(key, agent, monkeypatch
 
     chunks = await _answer()
 
-    assert "Kagi could not be reached" in chunks[0].text
+    assert "Kagi could not be reached" in chunks[0].notes[0]
     assert chunks[1].text.startswith("It held")

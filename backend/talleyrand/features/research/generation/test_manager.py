@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from talleyrand.core.config import settings
-from talleyrand.core.llm import SourceChunk, TextChunk, WebSource
+from talleyrand.core.llm import ExecutionChunk, SourceChunk, TextChunk, WebSource
 from talleyrand.features.research.generation import manager as manager_module
 from talleyrand.features.research.generation.manager import (
     BACKGROUND_CONCURRENCY,
@@ -222,6 +222,58 @@ async def test_completed_answer_carries_every_source_its_searches_found(monkeypa
         "https://blog.example/x",
     ]
     assert done[0]["sourcesFound"] == 2
+
+
+@pytest.mark.asyncio
+async def test_an_agent_answer_records_how_it_was_produced_apart_from_its_text(monkeypatch):
+    mgr = GenerationJobManager()
+    record = new_answer_record("g1", "u1", "n1")
+    params = AnswerParams(
+        openai_api_key="",
+        anthropic_api_key="",
+        web_search_enabled=True,
+        verbosity="low",
+        cheat_sheet=False,
+    )
+    job = RuntimeJob(record=record, background=False, answer_params=params)
+    mgr.jobs[record.id] = job
+    mgr.answer_job_by_node[("g1", "n1")] = record.id
+
+    repo = AsyncMock()
+    repo.set_running.return_value = True
+    repo.complete_answer.return_value = True
+    monkeypatch.setattr(mgr, "_job_repo", lambda: repo)
+    monkeypatch.setattr(mgr, "load_effective_graph", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        manager_module, "build_question_tree", lambda _graph: SimpleNamespace(outline={})
+    )
+
+    async def _stream():
+        yield ExecutionChunk("claude_code", "claude-sonnet-5", ("Web search did not run.",))
+        yield TextChunk("It holds.")
+
+    async def _fake_query(**_kwargs):
+        return _stream()
+
+    monkeypatch.setattr(manager_module, "do_research_query", _fake_query)
+
+    channel = JobChannel()
+    mgr.attach("g1", channel)
+    await mgr._run_answer(job)
+
+    assert repo.complete_answer.await_args.args[1] == "It holds."
+    execution = repo.complete_answer.await_args.args[5]
+    assert (execution.provider, execution.model, execution.notes) == (
+        "claude_code",
+        "claude-sonnet-5",
+        ["Web search did not run."],
+    )
+    (done,) = [e for e in _drain(channel) if e["type"] == "done"]
+    assert done["execution"] == {
+        "provider": "claude_code",
+        "model": "claude-sonnet-5",
+        "notes": ["Web search did not run."],
+    }
 
 
 def _drain(channel: JobChannel) -> list[dict]:

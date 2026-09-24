@@ -26,6 +26,7 @@ from talleyrand.core import agent_cli, claude_code, llm
 from talleyrand.core.claude_code import ClaudeCodeError
 from talleyrand.core.config import settings
 from talleyrand.core.llm import (
+    ExecutionChunk,
     PdfAttachment,
     StructuredGenerationError,
     TextChunk,
@@ -51,6 +52,7 @@ init = {{
     "tools": ["StructuredOutput"] if "--json-schema" in args else [],
     "mcp_servers": [],
     "apiKeySource": "none",
+    "model": "claude-sonnet-5",
 }}
 if mode == "api_key":
     init["apiKeySource"] = "ANTHROPIC_API_KEY"
@@ -371,15 +373,26 @@ async def test_an_answer_is_the_whole_prompt_answered_once(fake_claude, no_opena
 
 
 @pytest.mark.asyncio
-async def test_an_answer_says_what_it_could_not_use(fake_claude, no_openai):
-    chunks = await _answer(
-        web_search_enabled=True,
+async def test_an_answer_reports_its_model_and_what_it_could_not_use(fake_claude, no_openai):
+    stream = await stream_text(
+        caller="test",
+        model=get_model_config("claude-code"),
+        api_key="",
+        instructions="Answer.",
+        cached_prefix="BRIEF ",
+        user_prompt="QUESTION",
         pdf_documents=[PdfAttachment(filename="paper.pdf", data_uri="data:,")],
+        web_search_enabled=True,
+        verbosity="low",
     )
-    notice, answer = chunks
-    assert "web search" in notice
-    assert "paper.pdf could not be read" in notice
-    assert answer == "echo:BRIEF QUESTION"
+    execution, answer = [chunk async for chunk in stream]
+    assert isinstance(execution, ExecutionChunk)
+    assert (execution.provider, execution.model) == ("claude_code", "claude-sonnet-5")
+    web, pdf = execution.notes
+    assert web.startswith("Web search did not run")
+    assert pdf.startswith("paper.pdf could not be read")
+    # The notes stay out of the answer, which later prompts read back.
+    assert answer == TextChunk("echo:BRIEF QUESTION")
 
 
 def test_claude_code_needs_no_api_key(fake_claude):

@@ -240,9 +240,10 @@ async def test_an_answer_runs_on_hermes_and_says_what_it_could_not_use(fake_herm
         web_search_enabled=True,
         verbosity="low",
     )
-    notice, answer = [chunk.text async for chunk in stream if isinstance(chunk, TextChunk)]
-    assert "web search did not run (it needs a Kagi API key" in notice
-    assert answer == "echo:BRIEF QUESTION"
+    execution, answer = [chunk async for chunk in stream]
+    assert (execution.provider, execution.model) == ("hermes", settings.hermes_model)
+    assert execution.notes[0].startswith("Web search did not run (it needs a Kagi API key")
+    assert answer == TextChunk("echo:BRIEF QUESTION")
     assert fake_hermes.calls[0]["system"].startswith("Answer.")
 
 

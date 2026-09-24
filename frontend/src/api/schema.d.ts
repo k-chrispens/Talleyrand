@@ -647,6 +647,24 @@ export interface components {
             target: string;
         };
         /**
+         * ExecutionDTO
+         * @description How an agent CLI answer was produced: the provider (claude_code, hermes),
+         *     the model it reported, and notes on what it could not use. Shown beside
+         *     the answer; never fed back into any prompt. Absent on API-key answers and
+         *     on answers from before it was recorded.
+         */
+        ExecutionDTO: {
+            /** Provider */
+            provider: string;
+            /** Model */
+            model?: string | null;
+            /**
+             * Notes
+             * @default []
+             */
+            notes: string[];
+        };
+        /**
          * GenerateAnswerRequestDTO
          * @description Request body to start (or queue) an answer generation for a question node.
          */
@@ -821,6 +839,7 @@ export interface components {
              * @default 0
              */
             sourcesFound: number;
+            execution?: components["schemas"]["ExecutionDTO"] | null;
             /**
              * Suggestions
              * @default []
@@ -970,6 +989,7 @@ export interface components {
              * @default 0
              */
             sourcesFound: number;
+            execution?: components["schemas"]["ExecutionDTO"] | null;
         };
         /**
          * NodeDTO

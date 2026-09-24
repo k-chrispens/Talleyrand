@@ -99,10 +99,10 @@ async def test_the_answer_names_the_pdfs_it_could_not_read(monkeypatch):
         web_search_enabled=False,
         verbosity="low",
     )
-    text = "".join([chunk.text async for chunk in stream])
+    execution, answer = [chunk async for chunk in stream]
 
-    assert text.startswith("*Note: scan.pdf could not be read")
-    assert text.endswith("The treaty holds.")
+    assert execution.notes[0].startswith("scan.pdf could not be read")
+    assert answer.text == "The treaty holds."
 
 
 @pytest.mark.asyncio

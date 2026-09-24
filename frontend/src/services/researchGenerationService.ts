@@ -9,7 +9,7 @@ import {
 import { useGraphStructureStore } from '../stores/graphStructureStore';
 import { useNodeContentStore } from '../stores/nodeContentStore';
 import { useResearchStore } from '../stores/researchStore';
-import type { ModelType, ResearchSuggestion, WebSource } from '../types';
+import type { Execution, ModelType, ResearchSuggestion, WebSource } from '../types';
 import { queueJobAck, saveNow } from './autosaveSubscriptions';
 import { researchSuggestionService } from './researchSuggestionService';
 
@@ -30,6 +30,7 @@ type JobStreamEvent =
       answeredAt: string;
       sources: WebSource[];
       sourcesFound: number;
+      execution: Execution | null;
     }
   | {
       type: 'job_error';
@@ -173,6 +174,7 @@ class ResearchGenerationService {
       selections: [],
       sources: [],
       sourcesFound: 0,
+      execution: null,
     });
     this.ask(nodeId, { background: false });
   }
@@ -278,6 +280,7 @@ class ResearchGenerationService {
           job.answeredAt ?? null,
           job.sources,
           job.sourcesFound,
+          job.execution ?? null,
           { liveCompletion }
         );
         break;
@@ -294,6 +297,7 @@ class ResearchGenerationService {
     answeredAt: string | null,
     sources: WebSource[],
     sourcesFound: number,
+    execution: Execution | null,
     { liveCompletion }: { liveCompletion: boolean }
   ): void {
     const contentStore = useNodeContentStore.getState();
@@ -303,11 +307,12 @@ class ResearchGenerationService {
     if (responseChanged) {
       contentStore.setNodeResponse(nodeId, answer);
     }
-    // Sources belong to this answer: a regeneration replaces them wholesale.
+    // Sources and execution belong to this answer: a regeneration replaces them wholesale.
     contentStore.setNodeContent(nodeId, {
       answeredAt: answeredAt ?? undefined,
       sources,
       sourcesFound,
+      execution,
     });
     research.setJob(nodeId, null);
     research.clearStreamText(nodeId);
@@ -462,6 +467,7 @@ class ResearchGenerationService {
           event.answeredAt,
           event.sources,
           event.sourcesFound,
+          event.execution,
           { liveCompletion: live }
         );
         break;
