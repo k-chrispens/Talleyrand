@@ -15,7 +15,7 @@ import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import { UnauthorizedEvent } from '../events/UnauthorizedEvent';
 import { clearTokens } from '../services/tokenStorage';
 import { registerRouter } from './caseNavigation';
-import { SITE_URL } from '../config/constants';
+import { AGENT_BACKEND, SITE_URL } from '../config/constants';
 
 // Component to handle auth events
 const AuthEventHandler: FC = () => {
@@ -97,7 +97,10 @@ export const router = createBrowserRouter([
       { path: '/terms', element: <TermsPage /> },
       {
         path: '/login',
-        element: (
+        // A local session has no sign-in: the operator is always signed in.
+        element: AGENT_BACKEND ? (
+          <Navigate to="/research" replace />
+        ) : (
           <ErrorBoundary>
             <LoginPage />
           </ErrorBoundary>
