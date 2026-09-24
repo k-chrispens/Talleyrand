@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from talleyrand.core import claude_code, llm
+from talleyrand.core import agent_cli, claude_code, llm
 from talleyrand.core.claude_code import ClaudeCodeError
 from talleyrand.core.config import settings
 from talleyrand.core.llm import (
@@ -108,7 +108,7 @@ def fake_claude(tmp_path, monkeypatch) -> _FakeClaude:
     monkeypatch.setattr(settings, "local_mode", True)
     monkeypatch.setattr(settings, "agent_backend", "claude_code")
     monkeypatch.setattr(settings, "claude_code_executable", str(fake.executable))
-    monkeypatch.setattr(claude_code, "CWD", tmp_path / "cwd")
+    monkeypatch.setattr(agent_cli, "CWD", tmp_path / "cwd")
     return fake
 
 
@@ -149,7 +149,7 @@ async def test_the_cli_runs_with_no_tools_no_config_and_no_persistence(fake_clau
     assert args[args.index("--permission-prompts") + 1] == "none"
     assert args[args.index("--system-prompt") + 1] == "Be brief."
     assert args[args.index("--model") + 1] == settings.claude_code_model
-    assert Path(fake_claude.last_call["cwd"]).resolve() == claude_code.CWD.resolve()
+    assert Path(fake_claude.last_call["cwd"]).resolve() == agent_cli.CWD.resolve()
 
 
 @pytest.mark.asyncio
@@ -194,7 +194,7 @@ async def test_a_crash_without_a_result_reports_stderr(fake_claude):
 
 @pytest.mark.asyncio
 async def test_a_stalled_run_is_killed_with_its_whole_process_group(fake_claude, monkeypatch):
-    monkeypatch.setattr(settings, "claude_code_timeout_seconds", 1.0)
+    monkeypatch.setattr(settings, "agent_timeout_seconds", 1.0)
     fake_claude.mode("hang")
     with pytest.raises(ClaudeCodeError, match="did not finish"):
         await claude_code.run(system_prompt="sys", prompt="hi")
@@ -223,7 +223,7 @@ async def test_cancelling_a_run_kills_its_whole_process_group(fake_claude):
 async def test_nothing_runs_outside_a_local_agent_session(fake_claude, monkeypatch):
     # A hosted deployment must never spawn `claude`, whatever model id a
     # request names.
-    monkeypatch.setattr(settings, "agent_backend", None)
+    monkeypatch.setattr(settings, "local_mode", False)
     with pytest.raises(ClaudeCodeError, match="start-local"):
         await claude_code.run(system_prompt="sys", prompt="hi")
     assert not (fake_claude.directory / "last_call.json").exists()

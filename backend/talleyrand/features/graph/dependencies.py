@@ -27,9 +27,10 @@ def get_auxiliary_api_key(
     x_openai_api_key: Annotated[str | None, Header()] = None,
 ) -> str:
     """
-    The OpenAI key for kickstart, suggestions, reports and naming. A Claude Code
-    session runs that work on the operator's CLI instead, so it needs none.
+    The OpenAI key for kickstart, suggestions, reports and naming. A local
+    session with an agent backend runs that work on the operator's CLI instead,
+    so it needs none.
     """
-    if settings.agent_backend == "claude_code":
+    if settings.agent_backend is not None:
         return x_openai_api_key or ""
     return get_openai_api_key(x_openai_api_key)

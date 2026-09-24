@@ -2,7 +2,7 @@ import createClient, { type Middleware } from 'openapi-fetch';
 import type { paths } from './api/schema';
 import { UnauthorizedEvent } from './events/UnauthorizedEvent';
 import { BACKEND_CONFIG } from './config/constants';
-import type { ModelProvider } from './config/models';
+import { AGENT_PROVIDERS, type ModelProvider } from './config/models';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './services/tokenStorage';
 
 const getOpenAIApiKey = (): string | null => {
@@ -21,7 +21,7 @@ export const clearApiKeys = (): void => {
 
 /** Whether the API key a provider's models need is stored on this device. */
 export const isProviderKeyConfigured = (provider: ModelProvider): boolean =>
-  provider === 'claude_code' ||
+  AGENT_PROVIDERS.includes(provider) ||
   !!(provider === 'openai' ? getOpenAIApiKey() : getAnthropicApiKey());
 
 export const isWebSearchEnabled = (): boolean => {

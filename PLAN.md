@@ -8,6 +8,17 @@
 
 **Status (2026-09-23):** M1 implemented on branch `feat/local-claude-code`, uncommitted. `./start-local.sh` starts a no-login local session in which every model call runs on the operator's Claude Code subscription. Backend: 278 tests pass, lint and format clean. Frontend: build and format clean. Verified live: a real answer job (about 25 s, with the no-search notice), auto-naming (a structured call, no API key header), the context meter (estimated against a 150K budget), a foreign `Host` refused, loopback-only binding, clean session shutdown, and cancellation of a real `claude` run killing its process. Not yet exercised live: a browser walkthrough, the kickstart, suggestions, and report flows, and stopping the session while an answer is in flight (covered by unit tests with a real subprocess).
 
+**M4 (Hermes), 2026-09-23:** implemented on the same branch. Answers run on the `hermes` preset, and `AGENT_BACKEND=hermes ./start-local.sh` sends all auxiliary work to Hermes. In local mode both agent presets appear in the picker, so any question can use either agent. Process handling moved to a shared `core/agent_cli.py`, with one concurrency cap across agents (`AGENT_CONCURRENCY`, `AGENT_TIMEOUT_SECONDS`). Verified live: naming (5 s), kickstart questions (15 s, valid against the schema), an answer on the Hermes preset (18 s), a Claude Code answer inside a Hermes session, and clean shutdown. Backend: 290 tests pass.
+
+Hermes probe findings (Hermes 0.21.4):
+- **No tools:** `-t ""` does NOT mean no tools. Hermes treats an empty value as unset and loads its full default toolset. `-t bot_room`, the built-in text-only toolset, resolves to zero tools, and the model confirmed it had none.
+- **Isolation:** `--safe-mode` on the default profile keeps the pooled `openai-codex` login working, so the dedicated profile and second device-code login from section 3 aren't needed.
+- **Instructions:** there is no system-prompt flag. `HERMES_EPHEMERAL_SYSTEM_PROMPT` carries Talleyrand's instructions, added to Hermes's roughly 750-token default prompt.
+- **Output:** stream-json emits `init` (model and session only, no tools or auth), then `text`, `tool_use`, and `tool_result` events, then `result` with `exit_code`, `text`, and `error`. Since init reports no tools, the guard fails a run on any `tool_use` event.
+- **Structured output:** schema instructions produced clean JSON on the first try. The adapter validates it, tolerates a code fence, and makes one repair attempt.
+- **Readiness:** `hermes auth status <provider>` always exits 0, so the startup script matches on the text "logged in".
+- **Privacy:** failed requests are dumped, prompt included, to `~/.hermes/sessions/`.
+
 What M1 does differently from the text below, and why:
 
 - **Selection is a model preset, not an execution context.** Claude Code is a third provider (`claude_code`) with one preset, `claude-code`, in the existing model picker (decision 7: one preset; the CLI model comes from `CLAUDE_CODE_MODEL`, default `sonnet`). Auxiliary work (kickstart, suggestions, summaries, reports, naming) goes to Claude Code whenever `AGENT_BACKEND=claude_code`, a startup constant rather than mutable state. That replaces the registry, execution endpoint, and per-request context in sections 4 and 7.

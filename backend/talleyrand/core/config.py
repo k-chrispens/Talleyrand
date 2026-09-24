@@ -142,11 +142,12 @@ class Settings(BaseSettings):
             "the address you signed in with before opens the cases you already have."
         ),
     )
-    agent_backend: Literal["claude_code"] | None = Field(
+    agent_backend: Literal["claude_code", "hermes"] | None = Field(
         default=None,
         description=(
-            "Run model calls through a locally signed-in agent CLI instead of API keys. "
-            "Requires local_mode."
+            "The locally signed-in agent CLI that runs kickstart, suggestions, summaries, "
+            "reports and naming instead of API keys. Answers run on whichever agent the "
+            "question's model names. Requires local_mode."
         ),
     )
     claude_code_executable: str = Field(default="claude", description="The `claude` CLI to run")
@@ -154,15 +155,24 @@ class Settings(BaseSettings):
         default="sonnet",
         description="Model alias passed to `claude --model` for every Claude Code call",
     )
-    claude_code_timeout_seconds: float = Field(
-        default=900.0,
-        description="Longest one Claude Code call may run before it is killed",
+    hermes_executable: str = Field(default="hermes", description="The `hermes` CLI to run")
+    hermes_provider: str = Field(
+        default="openai-codex",
+        description="Hermes provider every Hermes call is pinned to (openai-codex: a ChatGPT plan)",
     )
-    claude_code_concurrency: int = Field(
+    hermes_model: str = Field(
+        default="gpt-6-astra",
+        description="Model passed to `hermes chat --model` for every Hermes call",
+    )
+    agent_timeout_seconds: float = Field(
+        default=900.0,
+        description="Longest one agent CLI call may run before it is killed",
+    )
+    agent_concurrency: int = Field(
         default=2,
         description=(
-            "How many Claude Code calls may run at once. They all draw on the same "
-            "subscription usage window."
+            "How many agent CLI calls may run at once, across backends. They draw on "
+            "subscription usage windows."
         ),
     )
 

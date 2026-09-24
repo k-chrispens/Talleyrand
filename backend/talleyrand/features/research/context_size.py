@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 from anthropic import APIError as AnthropicAPIError
 from fastapi import Depends, Header, HTTPException, status
 
-from talleyrand.core.llm import count_prompt_tokens
+from talleyrand.core.llm import AGENT_PROVIDERS, count_prompt_tokens
 from talleyrand.core.model_settings import get_model_config
 from talleyrand.core.token_counter import count_tokens
 from talleyrand.features.auth_jwt import router as auth_app
@@ -106,8 +106,10 @@ async def context_size(
     # Anthropic's counter needs the key the answer would use; without it, or
     # when the count fails, tiktoken stands in and the meter says so.
     api_key = x_anthropic_api_key if window.provider == "anthropic" else x_openai_api_key
-    # Claude Code has no counter to ask: tiktoken estimates it, below.
-    estimated = window.provider == "claude_code" or (window.provider == "anthropic" and not api_key)
+    # The agent CLIs have no counter to ask: tiktoken estimates them, below.
+    estimated = window.provider in AGENT_PROVIDERS or (
+        window.provider == "anthropic" and not api_key
+    )
     tokens: int | None = None
     if not estimated:
         try:

@@ -2,6 +2,7 @@ import { FC, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AGENT_BACKEND } from '../../config/constants';
 import {
+  AGENT_PROVIDERS,
   MODELS,
   PROVIDER_LABELS,
   PROVIDERS,
@@ -38,7 +39,7 @@ export const ModelPicker: FC<ModelPickerProps> = ({
 
   const allowed = (
     allowedModels ? MODELS.filter(m => allowedModels.includes(m.id)) : [...MODELS]
-  ).filter(m => AGENT_BACKEND || m.provider !== 'claude_code');
+  ).filter(m => AGENT_BACKEND || !AGENT_PROVIDERS.includes(m.provider));
   const availableProviders = PROVIDERS.filter(p => allowed.some(m => m.provider === p));
 
   const provider: ModelProvider =

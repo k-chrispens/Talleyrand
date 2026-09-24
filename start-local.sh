@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # Start a local Talleyrand session: MongoDB in Docker, the backend and frontend
-# on this machine, and every model call on your own signed-in Claude Code
+# on this machine, and every model call on your own signed-in agent CLI and its
 # subscription. No accounts, no API keys. Ctrl-C stops the session.
 #
-# One-time setup: Docker, pnpm, uv (or pdm), and `claude auth login`.
+#   ./start-local.sh                       # Claude Code (your Claude plan)
+#   AGENT_BACKEND=hermes ./start-local.sh  # Hermes (by default your ChatGPT plan)
+#
+# The agent named here runs the kickstart, suggestions, summaries, reports and
+# naming; each question can still be answered by either one in the model picker.
+#
+# One-time setup: Docker, pnpm, uv (or pdm), and a signed-in agent:
+# `claude auth login`, or Hermes signed in to its provider (`hermes setup`).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -15,7 +22,16 @@ die() {
 # --- preflight ---------------------------------------------------------------
 docker info >/dev/null 2>&1 || die "Docker is not running. Start your Docker runtime (Docker Desktop, OrbStack, ...) and try again."
 command -v pnpm >/dev/null || die "pnpm is not installed."
-command -v claude >/dev/null || die "Claude Code is not installed (https://claude.com/claude-code)."
+AGENT_BACKEND="${AGENT_BACKEND:-claude_code}"
+case "$AGENT_BACKEND" in
+  claude_code)
+    command -v claude >/dev/null || die "Claude Code is not installed (https://claude.com/claude-code)."
+    ;;
+  hermes)
+    command -v hermes >/dev/null || die "Hermes is not installed."
+    ;;
+  *) die "AGENT_BACKEND must be claude_code or hermes, not '$AGENT_BACKEND'." ;;
+esac
 if command -v pdm >/dev/null; then
   PDM="pdm"
 elif command -v uvx >/dev/null; then
@@ -28,12 +44,20 @@ for port in 8000 3000; do
     die "Port $port is already in use. A docker compose backend? Stop it with: docker compose down"
   fi
 done
-if ! claude auth status --json 2>/dev/null | grep -Eq '"authMethod": *"claude.ai"'; then
-  echo "start-local: warning: Claude Code is not signed in with a Claude subscription." >&2
-  echo "start-local: answers will fail until you run: claude auth login" >&2
+if [ "$AGENT_BACKEND" = claude_code ]; then
+  if ! claude auth status --json 2>/dev/null | grep -Eq '"authMethod": *"claude.ai"'; then
+    echo "start-local: warning: Claude Code is not signed in with a Claude subscription." >&2
+    echo "start-local: model calls will fail until you run: claude auth login" >&2
+  fi
+else
+  provider="${HERMES_PROVIDER:-openai-codex}"
+  if ! hermes auth status "$provider" 2>/dev/null | grep -q "logged in"; then
+    echo "start-local: warning: Hermes is not signed in to $provider." >&2
+    echo "start-local: model calls will fail until you sign in (hermes setup)." >&2
+  fi
 fi
 
-# The backend never passes these to `claude` anyway; this is a second guard
+# The backend never passes these to an agent CLI anyway; this is a second guard
 # against a run landing on API billing instead of the subscription.
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL OPENAI_API_KEY
 
@@ -72,7 +96,7 @@ trap cleanup EXIT INT TERM
 # Loopback only: local mode has no sign-in, so the network is the boundary.
 (
   cd backend
-  export LOCAL_MODE=true AGENT_BACKEND=claude_code COOKIE_SECURE=false
+  export LOCAL_MODE=true AGENT_BACKEND COOKIE_SECURE=false
   export MONGODB_URL=mongodb://admin:admin@localhost:27017
   exec .venv/bin/uvicorn talleyrand.main:app --host 127.0.0.1 --port 8000 \
     --timeout-graceful-shutdown 10
@@ -87,7 +111,7 @@ done
 
 (
   cd frontend
-  export VITE_BACKEND_URL=localhost:8000 VITE_IS_SECURE=false VITE_AGENT_BACKEND=claude_code
+  export VITE_BACKEND_URL=localhost:8000 VITE_IS_SECURE=false VITE_AGENT_BACKEND="$AGENT_BACKEND"
   exec node_modules/.bin/vite --host 127.0.0.1 --port 3000 --strictPort
 ) &
 FRONTEND_PID=$!
@@ -98,7 +122,7 @@ until curl -sf http://127.0.0.1:3000 >/dev/null; do
 done
 
 echo
-echo "start-local: Talleyrand is running at http://localhost:3000 (Ctrl-C to stop)"
+echo "start-local: Talleyrand is running at http://localhost:3000 on $AGENT_BACKEND (Ctrl-C to stop)"
 open http://localhost:3000/research 2>/dev/null || true
 
 # Stop the whole session as soon as either half exits.

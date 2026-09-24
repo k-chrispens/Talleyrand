@@ -28,24 +28,29 @@ Also in the box: insight highlights that feed later answers, cross-links between
 
 Keys are entered in the app's Settings, kept in your browser, and sent with each request. They are never stored on the server, so a self-hosted instance needs no model API keys of its own.
 
-## Run it on your own machine with your Claude subscription
+## Run it on your own machine with your AI subscription
 
-No Google project, no sign-in, no API keys: every model call runs on your own signed-in [Claude Code](https://claude.com/claude-code), drawing on your Claude plan's usage limits.
+No Google project, no sign-in, no API keys: every model call runs on your own signed-in agent CLI, drawing on your plan's usage limits. Two are supported:
 
-**You need:** a Docker runtime (Docker Desktop, OrbStack, …), [pnpm](https://pnpm.io), [uv](https://docs.astral.sh/uv/) (or pdm), and Claude Code signed in with your subscription: `claude auth login`.
+- [Claude Code](https://claude.com/claude-code), on your Claude plan: sign in with `claude auth login`.
+- [Hermes](https://hermes-agent.nousresearch.com), by default on your ChatGPT plan through its `openai-codex` provider: sign in with `hermes setup`.
+
+**You also need:** a Docker runtime (Docker Desktop, OrbStack, …), [pnpm](https://pnpm.io), and [uv](https://docs.astral.sh/uv/) (or pdm).
 
 ```bash
-./start-local.sh
+./start-local.sh                        # Claude Code
+AGENT_BACKEND=hermes ./start-local.sh   # Hermes
 ```
 
-It starts MongoDB in Docker and the backend and frontend on this machine, then opens [http://localhost:3000](http://localhost:3000). Pick **Claude Code** in the model picker (it is the default in this mode). Ctrl-C stops the session; MongoDB keeps running (`docker compose stop mongodb` stops it).
+It starts MongoDB in Docker and the backend and frontend on this machine, then opens [http://localhost:3000](http://localhost:3000). The agent you start with runs the kickstart, suggestions, summaries, reports and naming, and is the default for answers; the model picker lets any question be answered by either agent. Ctrl-C stops the session; MongoDB keeps running (`docker compose stop mongodb` stops it).
 
 What to know:
 
 - **Local only.** There is no sign-in, so both servers listen on 127.0.0.1 only and the backend refuses requests for any other host. Never run this mode on a server.
-- **Every call counts against your plan**, including the kickstart, suggestions, summaries and naming, not just answers. At most two run at once (`CLAUDE_CODE_CONCURRENCY`).
-- **Model:** `sonnet` by default; set `CLAUDE_CODE_MODEL` (e.g. `opus`) in `backend/.env` to change it.
+- **Every call counts against your plan**, including the kickstart, suggestions, summaries and naming, not just answers. At most two run at once (`AGENT_CONCURRENCY`).
+- **Models:** Claude Code runs `sonnet` and Hermes runs `gpt-6-astra` on `openai-codex` by default; change them with `CLAUDE_CODE_MODEL`, `HERMES_MODEL` and `HERMES_PROVIDER` in `backend/.env`.
 - **Not yet:** web search (answers say so at the top; turn search off in Settings to drop the note), reading PDFs (use text documents), and dictation.
+- **Transcripts:** Claude Code runs keep no session. Hermes keeps its runs in its own session store, out of your session lists, and writes a failed request, prompt included, to `~/.hermes/sessions`.
 - **Your existing cases** belong to the email you signed in with. Set `LOCAL_USER_EMAIL` to that address in `backend/.env` to open them.
 
 ## Run it locally

@@ -15,9 +15,10 @@ type SupportedModel = Literal[
     "claude-fable-5-1-high",
     "claude-fable-5-1-max",
     "claude-code",
+    "hermes",
 ]
 
-type Provider = Literal["openai", "anthropic", "claude_code"]
+type Provider = Literal["openai", "anthropic", "claude_code", "hermes"]
 
 # "none" is an explicit GPT-5.6 effort level meaning "do not reason at all" —
 # distinct from reasoning_effort=None, which means "send no effort parameter"
@@ -122,7 +123,20 @@ MODEL_WINDOWS: dict[str, ModelWindow] = {
         max_output_tokens=32_000,
         max_input_tokens=150_000,
     ),
+    # The operator's `hermes` CLI (core/hermes.py) on settings.hermes_model.
+    # The same conservative budget: a subscription plan need not grant the
+    # model's full API window.
+    "hermes": ModelWindow(
+        provider="hermes",
+        api_model="hermes",
+        context_tokens=200_000,
+        max_output_tokens=32_000,
+        max_input_tokens=150_000,
+    ),
 }
+
+# The preset (and window) each agent backend runs under.
+AGENT_PRESETS: dict[str, str] = {"claude_code": "claude-code", "hermes": "hermes"}
 
 
 def get_model_window(api_model: str) -> ModelWindow:
@@ -137,11 +151,11 @@ def get_model_window(api_model: str) -> ModelWindow:
 def auxiliary_window(api_model: str) -> ModelWindow:
     """
     The window a fixed-model feature (kickstart, suggestions, reports) fits its
-    prompt to: its own API model's, or Claude Code's in a Claude Code session,
-    which runs that work instead.
+    prompt to: its own API model's, or the agent's when a local session runs
+    that work on an agent CLI instead.
     """
-    if settings.agent_backend == "claude_code":
-        return MODEL_WINDOWS["claude-code"]
+    if settings.agent_backend is not None:
+        return MODEL_WINDOWS[AGENT_PRESETS[settings.agent_backend]]
     return get_model_window(api_model)
 
 
@@ -274,13 +288,21 @@ MODEL_CONFIGS: dict[SupportedModel, ModelConfig] = {
         refusal_fallback=True,
         plain_prose=True,
     ),
-    # Only usable in a local session (settings.agent_backend == "claude_code").
+    # The agent CLIs, only usable in a local session (settings.local_mode).
     "claude-code": ModelConfig(
         id="claude-code",
         api_model="claude-code",
         label="Claude Code",
         description="Your Claude subscription, no web search yet",
         order=11,
+        reasoning_effort=None,
+    ),
+    "hermes": ModelConfig(
+        id="hermes",
+        api_model="hermes",
+        label="Hermes",
+        description="Your ChatGPT subscription via Hermes, no web search yet",
+        order=12,
         reasoning_effort=None,
     ),
 }
