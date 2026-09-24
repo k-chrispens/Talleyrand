@@ -166,10 +166,12 @@ class Settings(BaseSettings):
     )
     agent_timeout_seconds: float = Field(
         default=900.0,
+        gt=0,
         description="Longest one agent CLI call may run before it is killed",
     )
     agent_concurrency: int = Field(
         default=2,
+        ge=1,
         description=(
             "How many agent CLI calls may run at once, across backends. They draw on "
             "subscription usage windows."

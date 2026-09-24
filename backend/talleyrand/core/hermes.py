@@ -16,17 +16,24 @@ as the CLI allows:
 Hermes has no system-prompt flag; Talleyrand's instructions travel in
 HERMES_EPHEMERAL_SYSTEM_PROMPT, added to Hermes's own short default prompt.
 Its stream-json output does not say which tools a run had, so a run that
-reports calling one is refused instead. Nor is there a schema flag: structured
+reports calling one is killed at that event, before the tool finishes. Nor is there a schema flag: structured
 calls ask for JSON in the instructions and are validated here, with one
 repair attempt. Checked against Hermes 0.21.4 on 2026-09-23 (see PLAN.md).
 Failed requests are dumped, prompt included, to ~/.hermes/sessions.
+
+Unlike Claude Code, a Hermes run cannot be held to the subscription: Hermes
+loads ~/.hermes/.env (API keys included) into itself whatever environment it
+is given, and its side calls (such as titling the session) may fall back to
+those keys. The environment allowlist keeps the server's keys out; it cannot
+keep out Hermes's own.
 """
 
 import json
+from typing import Any
 
 from pydantic import BaseModel
 
-from talleyrand.core.agent_cli import AgentError, jsonl_events, run_cli, stderr_tail
+from talleyrand.core.agent_cli import AgentError, run_cli, stderr_tail
 from talleyrand.core.config import settings
 
 STRUCTURED_INSTRUCTION = (
@@ -61,13 +68,13 @@ async def run(*, system_prompt: str, prompt: str) -> str:
         "--max-turns",
         "1",
     ]
-    stdout, stderr, returncode = await run_cli(
-        args, prompt, error=HermesError, env={"HERMES_EPHEMERAL_SYSTEM_PROMPT": system_prompt}
+    events, stderr, returncode = await run_cli(
+        args,
+        prompt,
+        error=HermesError,
+        env={"HERMES_EPHEMERAL_SYSTEM_PROMPT": system_prompt},
+        on_event=_refuse_tools,
     )
-    events = jsonl_events(stdout)
-    tool = next((e for e in events if e.get("type") == "tool_use"), None)
-    if tool is not None:
-        raise HermesError(f"Hermes called a tool ({tool.get('name')}); refusing its answer.")
     result = next((e for e in reversed(events) if e.get("type") == "result"), None)
     if result is None:
         raise HermesError(f"Hermes exited without an answer: {stderr_tail(stderr, returncode)}")
@@ -97,6 +104,12 @@ async def run_structured[SchemaT: BaseModel](
         return _parse(reply, schema)
     except ValueError as e:
         raise HermesError(f"the reply did not match the expected format: {str(e)[:500]}") from e
+
+
+def _refuse_tools(event: dict[str, Any]) -> None:
+    """Stop a run the moment it reports calling a tool: it should have none."""
+    if event.get("type") == "tool_use":
+        raise HermesError(f"Hermes called a tool ({event.get('name')}); refusing.")
 
 
 def _parse[SchemaT: BaseModel](reply: str, schema: type[SchemaT]) -> SchemaT:

@@ -2,7 +2,7 @@ import createClient, { type Middleware } from 'openapi-fetch';
 import type { paths } from './api/schema';
 import { UnauthorizedEvent } from './events/UnauthorizedEvent';
 import { BACKEND_CONFIG } from './config/constants';
-import { AGENT_PROVIDERS, type ModelProvider } from './config/models';
+import { AGENT_PROVIDERS, isProviderAvailable, type ModelProvider } from './config/models';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './services/tokenStorage';
 
 const getOpenAIApiKey = (): string | null => {
@@ -19,10 +19,14 @@ export const clearApiKeys = (): void => {
   localStorage.removeItem('anthropic_api_key');
 };
 
-/** Whether the API key a provider's models need is stored on this device. */
+/**
+ * Whether a provider's models can run from this device: an API key stored for
+ * the API providers; a local session for the agent CLIs, which need no key.
+ */
 export const isProviderKeyConfigured = (provider: ModelProvider): boolean =>
-  AGENT_PROVIDERS.includes(provider) ||
-  !!(provider === 'openai' ? getOpenAIApiKey() : getAnthropicApiKey());
+  AGENT_PROVIDERS.includes(provider)
+    ? isProviderAvailable(provider)
+    : !!(provider === 'openai' ? getOpenAIApiKey() : getAnthropicApiKey());
 
 export const isWebSearchEnabled = (): boolean => {
   return localStorage.getItem('web_search_enabled') !== 'false';

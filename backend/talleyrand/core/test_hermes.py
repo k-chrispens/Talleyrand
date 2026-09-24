@@ -25,7 +25,7 @@ from talleyrand.core.model_settings import get_model_config
 # Each call answers with the next line of `replies` (the last one repeats), so
 # a test can script a first reply that fails validation and a repair.
 FAKE_HERMES = """#!{python}
-import json, os, pathlib, sys
+import json, os, pathlib, sys, time
 
 here = pathlib.Path(__file__).parent
 mode = (here / "mode").read_text().strip()
@@ -46,6 +46,9 @@ def emit(obj):
 emit({{"type": "system", "subtype": "init", "model": "gpt-6-astra", "session_id": "s1"}})
 if mode == "tool":
     emit({{"type": "tool_use", "name": "terminal", "input": {{"command": "ls"}}}})
+    # The tool running: stopped before it finishes, it never marks this.
+    time.sleep(10)
+    (here / "tool_ran").write_text("yes")
 if mode == "rejected":
     emit({{"type": "result", "session_id": "s1", "exit_code": 1,
            "text": "ChatGPT or Codex Subscription rejected the request.", "error": "HTTP 400"}})
@@ -134,10 +137,11 @@ async def test_api_keys_in_the_server_environment_never_reach_hermes(fake_hermes
 
 
 @pytest.mark.asyncio
-async def test_a_run_that_calls_a_tool_is_refused(fake_hermes):
+async def test_a_run_that_calls_a_tool_is_stopped_as_soon_as_it_does(fake_hermes):
     fake_hermes.mode("tool")
     with pytest.raises(HermesError, match="terminal"):
         await hermes.run(system_prompt="sys", prompt="hi")
+    assert not (fake_hermes.directory / "tool_ran").exists()
 
 
 @pytest.mark.asyncio

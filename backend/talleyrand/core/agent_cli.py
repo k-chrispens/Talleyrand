@@ -12,8 +12,12 @@ CLI, whatever model a request names. What every backend gets from here:
   inherited ANTHROPIC_API_KEY or OPENAI_API_KEY would silently bill the run to
   an API instead of the subscription;
 - one concurrency cap across backends, since calls share a usage window;
-- a timeout, and on timeout or cancellation (a deleted question, a forced
-  retry, shutdown) the whole process group killed before the error propagates.
+- output read as it is printed, so a backend can stop a run at the first
+  event that shows it is not what it should be (API-key auth, tools), before
+  the model is called or a tool finishes;
+- a timeout, and on timeout, refusal or cancellation (a deleted question, a
+  forced retry, shutdown) the whole process group killed before the error
+  propagates.
 """
 
 import asyncio
@@ -21,6 +25,7 @@ import contextlib
 import json
 import os
 import signal
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +37,9 @@ CWD = Path.home() / ".local" / "share" / "talleyrand" / "agent-cwd"
 ENV_ALLOWLIST = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR")
 
 KILL_GRACE_SECONDS = 5.0
+
+# A whole answer arrives as one JSON line; asyncio's default line limit is 64 KiB.
+LINE_LIMIT = 64 * 1024 * 1024
 
 _slots = asyncio.Semaphore(settings.agent_concurrency)
 
@@ -49,8 +57,13 @@ async def run_cli(
     *,
     error: type[AgentError],
     env: dict[str, str] | None = None,
-) -> tuple[bytes, bytes, int | None]:
-    """Run one CLI call to completion; returns (stdout, stderr, exit code)."""
+    on_event: Callable[[dict[str, Any]], None] | None = None,
+) -> tuple[list[dict[str, Any]], bytes, int | None]:
+    """
+    Run one CLI call to completion; returns (stdout's JSON events, stderr, exit
+    code). on_event sees each event as it is printed and may raise `error` to
+    stop the run right there.
+    """
     if not settings.local_mode:
         raise error(
             f"{error.label} is only available in a local session. Start Talleyrand with "
@@ -70,13 +83,13 @@ async def run_cli(
                 cwd=CWD,
                 env=child_env,
                 start_new_session=True,
+                limit=LINE_LIMIT,
             )
         except FileNotFoundError as e:
             raise error(f"`{args[0]}` was not found. {error.setup_hint}") from e
         try:
-            # ponytail: communicate() buffers the whole output; fine at answer sizes.
             async with asyncio.timeout(settings.agent_timeout_seconds):
-                stdout, stderr = await proc.communicate(prompt.encode())
+                events, stderr = await _read(proc, prompt, on_event)
         except TimeoutError as e:
             await _kill(proc)
             raise error(
@@ -85,18 +98,45 @@ async def run_cli(
         except BaseException:
             await _kill(proc)
             raise
-    return stdout, stderr, proc.returncode
+    return events, stderr, proc.returncode
 
 
-def jsonl_events(stdout: bytes) -> list[dict[str, Any]]:
-    """The JSON objects in a JSONL stream; anything else on stdout is skipped."""
-    events = []
-    for line in stdout.splitlines():
-        with contextlib.suppress(json.JSONDecodeError):
-            event = json.loads(line)
+async def _read(
+    proc: asyncio.subprocess.Process,
+    prompt: str,
+    on_event: Callable[[dict[str, Any]], None] | None,
+) -> tuple[list[dict[str, Any]], bytes]:
+    """Feed the prompt and collect stdout's JSON events as they arrive."""
+    assert proc.stdin and proc.stdout and proc.stderr
+
+    async def feed() -> None:
+        # A CLI that exits early (bad flags, refused auth) stops reading stdin.
+        try:
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                proc.stdin.write(prompt.encode())
+                await proc.stdin.drain()
+        finally:
+            proc.stdin.close()
+
+    feeding = asyncio.create_task(feed())
+    stderr = asyncio.create_task(proc.stderr.read())
+    try:
+        events = []
+        async for line in proc.stdout:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # stdout carries the odd non-JSON line
             if isinstance(event, dict):
                 events.append(event)
-    return events
+                if on_event is not None:
+                    on_event(event)
+        await feeding
+        await proc.wait()
+        return events, await stderr
+    finally:
+        feeding.cancel()
+        stderr.cancel()
 
 
 def stderr_tail(stderr: bytes, returncode: int | None) -> str:

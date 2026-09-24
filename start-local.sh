@@ -82,16 +82,22 @@ done
 BACKEND_PID=""
 FRONTEND_PID=""
 cleanup() {
-  trap - EXIT INT TERM
+  # Every step must run whatever state the two halves are in: under errexit a
+  # failed kill (a half that already exited) would end the trap early and
+  # leave the other half running.
+  set +e
+  trap - EXIT
   echo
   echo "start-local: stopping..."
-  # The backend's shutdown kills any Claude Code run still in flight.
+  # The backend's shutdown kills any agent run still in flight.
   [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null
   [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null
   wait 2>/dev/null
   echo "start-local: stopped. MongoDB keeps running; stop it with: docker compose stop mongodb"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+# Ctrl-C and TERM end the script, which runs cleanup exactly once on the way out.
+trap 'exit 130' INT TERM
 
 # Loopback only: local mode has no sign-in, so the network is the boundary.
 (

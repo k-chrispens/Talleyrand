@@ -56,7 +56,12 @@ if mode == "api_key":
     init["apiKeySource"] = "ANTHROPIC_API_KEY"
 if mode == "tools":
     init["tools"] = ["Bash"]
-print(json.dumps(init), flush=True)
+if mode != "no_init":
+    print(json.dumps(init), flush=True)
+if mode in ("api_key", "tools"):
+    # The model call the check must prevent: billed, and marked, if it runs.
+    time.sleep(10)
+    (here / "billed").write_text("yes")
 
 if mode == "hang":
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
@@ -165,16 +170,30 @@ async def test_api_keys_in_the_server_environment_never_reach_the_cli(fake_claud
 
 
 @pytest.mark.asyncio
-async def test_a_run_billed_to_an_api_key_is_refused(fake_claude):
+async def test_a_run_on_an_api_key_is_stopped_before_the_model_is_called(fake_claude):
     fake_claude.mode("api_key")
+    started = time.monotonic()
     with pytest.raises(ClaudeCodeError, match="ANTHROPIC_API_KEY"):
         await claude_code.run(system_prompt="sys", prompt="hi")
+    # Stopped at the init event, not after the run: nothing was billed.
+    assert time.monotonic() - started < 8
+    assert not (fake_claude.directory / "billed").exists()
 
 
 @pytest.mark.asyncio
-async def test_a_run_that_was_given_tools_is_refused(fake_claude):
+async def test_a_run_that_was_given_tools_is_stopped_before_it_can_use_them(fake_claude):
     fake_claude.mode("tools")
     with pytest.raises(ClaudeCodeError, match="Bash"):
+        await claude_code.run(system_prompt="sys", prompt="hi")
+    assert not (fake_claude.directory / "billed").exists()
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_never_reports_its_setup_is_refused(fake_claude):
+    # Without the init event there is no evidence the run was on the
+    # subscription with no tools, so its answer is not trusted.
+    fake_claude.mode("no_init")
+    with pytest.raises(ClaudeCodeError, match="init"):
         await claude_code.run(system_prompt="sys", prompt="hi")
 
 

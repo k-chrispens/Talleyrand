@@ -154,9 +154,19 @@ export const RETIRED_MODELS: Record<string, { label: string; replacedBy: ModelTy
 };
 
 /** Current preset for a stored id, translating retired ids to their replacements. */
+/**
+ * Whether this build can run a provider's models: the agent CLIs only in a
+ * local session. Anywhere else an agent preset is not a choice at all, so a
+ * stored one (localStorage is shared by every app on localhost:3000) falls
+ * back to the default instead of failing at answer time.
+ */
+export const isProviderAvailable = (provider: ModelProvider): boolean =>
+  !!AGENT_BACKEND || !AGENT_PROVIDERS.includes(provider);
+
 export function resolveModelId(modelId: string | undefined | null): ModelType {
   if (!modelId) return DEFAULT_MODEL;
-  if (MODELS.some(m => m.id === modelId)) return modelId as ModelType;
+  const model = MODELS.find(m => m.id === modelId);
+  if (model) return isProviderAvailable(model.provider) ? model.id : DEFAULT_MODEL;
   return RETIRED_MODELS[modelId]?.replacedBy ?? DEFAULT_MODEL;
 }
 

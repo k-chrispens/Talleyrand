@@ -46,10 +46,11 @@ It starts MongoDB in Docker and the backend and frontend on this machine, then o
 
 What to know:
 
-- **Local only.** There is no sign-in, so both servers listen on 127.0.0.1 only and the backend refuses requests for any other host. Never run this mode on a server.
+- **Local only.** There is no sign-in, so the backend accepts only connections from this machine, and refuses state-changing requests that a browser marks as coming from another website. Both servers and MongoDB listen on 127.0.0.1 only. Never run this mode on a server, and don't use it on a machine other people have accounts on: any local account can reach it.
 - **Every call counts against your plan**, including the kickstart, suggestions, summaries and naming, not just answers. At most two run at once (`AGENT_CONCURRENCY`).
 - **Models:** Claude Code runs `sonnet` and Hermes runs `gpt-6-astra` on `openai-codex` by default; change them with `CLAUDE_CODE_MODEL`, `HERMES_MODEL` and `HERMES_PROVIDER` in `backend/.env`.
 - **Not yet:** web search (answers say so at the top; turn search off in Settings to drop the note), reading PDFs (use text documents), and dictation.
+- **Billing:** Claude Code runs are stopped before they reach the model if they would bill an API key instead of your subscription. Hermes offers no such check: it uses whatever its own configuration provides, and it loads the API keys in `~/.hermes/.env` for its own side calls (Hermes also titles each run with an extra small model call).
 - **Transcripts:** Claude Code runs keep no session. Hermes keeps its runs in its own session store, out of your session lists, and writes a failed request, prompt included, to `~/.hermes/sessions`.
 - **Your existing cases** belong to the email you signed in with. Set `LOCAL_USER_EMAIL` to that address in `backend/.env` to open them.
 

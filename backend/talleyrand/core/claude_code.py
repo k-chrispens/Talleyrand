@@ -7,8 +7,9 @@ tools, no MCP servers, no skills, and none of the operator's own settings,
 hooks, plugins or CLAUDE.md (--safe-mode), so nothing but Talleyrand's prompt
 shapes the answer and nothing in a case can make it act.
 
-The CLI's first event reports what the run actually got, and a run that got
-tools or API-key auth is refused rather than trusted. The CLI's contract was
+The CLI's first event reports what the run actually got. A run that got tools
+or API-key auth is killed the moment that event is printed, before the model
+is called; a run that never prints it is not trusted either. The CLI's contract was
 checked against Claude Code 2.1.280 on 2026-09-23 (see PLAN.md).
 """
 
@@ -16,7 +17,7 @@ import json
 import os
 from typing import Any
 
-from talleyrand.core.agent_cli import AgentError, jsonl_events, run_cli, stderr_tail
+from talleyrand.core.agent_cli import AgentError, run_cli, stderr_tail
 from talleyrand.core.config import settings
 
 # The `claude setup-token` fallback for machines where the keychain is
@@ -56,30 +57,15 @@ async def run(*, system_prompt: str, prompt: str, json_schema: dict | None = Non
     if json_schema is not None:
         args += ["--json-schema", json.dumps(json_schema)]
     env = {OAUTH_TOKEN_ENV: os.environ[OAUTH_TOKEN_ENV]} if OAUTH_TOKEN_ENV in os.environ else {}
-    stdout, stderr, returncode = await run_cli(args, prompt, error=ClaudeCodeError, env=env)
-    return _terminal_result(stdout, stderr, returncode)
-
-
-def _terminal_result(stdout: bytes, stderr: bytes, returncode: int | None) -> dict[str, Any]:
-    """Check the run's init event, then return its result event or raise."""
-    events = jsonl_events(stdout)
-    init = next(
-        (e for e in events if e.get("type") == "system" and e.get("subtype") == "init"), None
+    events, stderr, returncode = await run_cli(
+        args, prompt, error=ClaudeCodeError, env=env, on_event=_check_init
     )
+    if not any(_is_init(e) for e in events):
+        raise ClaudeCodeError(
+            "Claude Code did not report its setup (no init event), so its answer is not "
+            f"trusted: {stderr_tail(stderr, returncode)}"
+        )
     result = next((e for e in reversed(events) if e.get("type") == "result"), None)
-
-    if init is not None:
-        auth = init.get("apiKeySource")
-        if auth != "none":
-            raise ClaudeCodeError(
-                f"Claude Code authenticated with {auth} instead of your Claude subscription; "
-                "refusing to run on API billing. Unset it and sign in with `claude auth login`."
-            )
-        extra_tools = set(init.get("tools") or []) - ALLOWED_TOOLS
-        if extra_tools or init.get("mcp_servers"):
-            names = ", ".join(sorted(extra_tools) + [str(s) for s in init.get("mcp_servers", [])])
-            raise ClaudeCodeError(f"Claude Code started with tools enabled ({names}); refusing.")
-
     if result is None:
         raise ClaudeCodeError(
             f"Claude Code exited without an answer: {stderr_tail(stderr, returncode)}"
@@ -87,3 +73,23 @@ def _terminal_result(stdout: bytes, stderr: bytes, returncode: int | None) -> di
     if result.get("is_error") or result.get("subtype") != "success":
         raise ClaudeCodeError(str(result.get("result") or result.get("subtype") or "failed"))
     return result
+
+
+def _is_init(event: dict[str, Any]) -> bool:
+    return event.get("type") == "system" and event.get("subtype") == "init"
+
+
+def _check_init(event: dict[str, Any]) -> None:
+    """Refuse a run the moment its init event shows API-key auth or tools."""
+    if not _is_init(event):
+        return
+    auth = event.get("apiKeySource")
+    if auth != "none":
+        raise ClaudeCodeError(
+            f"Claude Code authenticated with {auth} instead of your Claude subscription; "
+            "refusing to run on API billing. Unset it and sign in with `claude auth login`."
+        )
+    extra_tools = set(event.get("tools") or []) - ALLOWED_TOOLS
+    if extra_tools or event.get("mcp_servers"):
+        names = ", ".join(sorted(extra_tools) + [str(s) for s in event.get("mcp_servers", [])])
+        raise ClaudeCodeError(f"Claude Code started with tools enabled ({names}); refusing.")

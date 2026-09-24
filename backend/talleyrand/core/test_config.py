@@ -43,3 +43,13 @@ def test_claude_code_backend_requires_local_mode():
     with pytest.raises(ValidationError, match="local_mode"):
         Settings(_env_file=None, agent_backend="claude_code")
     assert Settings(_env_file=None, local_mode=True, agent_backend="claude_code").agent_backend
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [("agent_concurrency", 0), ("agent_timeout_seconds", 0), ("agent_timeout_seconds", -1)],
+)
+def test_agent_limits_that_would_hang_every_call_are_refused(field, value):
+    # Zero slots never grants one, and the timeout only starts inside a slot.
+    with pytest.raises(ValidationError, match=field):
+        Settings(_env_file=None, local_mode=True, **{field: value})

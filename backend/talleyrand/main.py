@@ -23,6 +23,7 @@ from talleyrand.features.share.router import router as share_router
 from talleyrand.features.transcription.router import router as transcription_router
 from talleyrand.infra.body_limit import BodySizeLimitMiddleware
 from talleyrand.infra.db import lifespan_db
+from talleyrand.infra.local_only import LocalOnlyMiddleware
 from talleyrand.infra.log_redaction import install_query_string_redaction
 from talleyrand.models.user import User
 
@@ -73,14 +74,15 @@ app.add_middleware(
 
 def apply_local_mode(app: FastAPI, email: str) -> None:
     """
-    Sign every request in as one local user, and refuse any request not
-    addressed to this machine. With no sign-in, the network is the only
-    boundary: the server binds to 127.0.0.1 (pdm run local), and the host
-    check stops a web page from reaching it through DNS rebinding.
+    Sign every request in as one local user, and accept only requests from
+    this machine that a web page elsewhere could not have sent. With no
+    sign-in, that is the whole boundary (see infra/local_only.py). The
+    server also binds to 127.0.0.1 (pdm run local), but nothing relies on it.
     """
     local_user = User(id="local", email=email, name="Local")
     app.dependency_overrides[require_auth] = lambda: local_user
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
+    app.add_middleware(LocalOnlyMiddleware, allowed_origins=settings.cors_origins)
 
 
 if settings.local_mode:
