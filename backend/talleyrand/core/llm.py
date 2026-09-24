@@ -548,10 +548,12 @@ async def _stream_agent(
             "model's own knowledge"
         )
     if pdf_documents:
-        count = len(pdf_documents)
+        # Readable PDFs reach an agent as text (query_service); these had none.
+        names = ", ".join(doc.filename for doc in pdf_documents)
         notices.append(
-            f"{count} attached PDF{'s' if count > 1 else ''} could not be read: {label} "
-            "takes text documents only for now"
+            f"{names} could not be read: {label} reads a PDF's text, and "
+            f"{'these have' if len(pdf_documents) > 1 else 'this has'} none, a password, "
+            "or damage"
         )
 
     if provider == "hermes":

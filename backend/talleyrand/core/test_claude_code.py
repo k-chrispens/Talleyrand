@@ -378,7 +378,7 @@ async def test_an_answer_says_what_it_could_not_use(fake_claude, no_openai):
     )
     notice, answer = chunks
     assert "web search" in notice
-    assert "1 attached PDF" in notice
+    assert "paper.pdf could not be read" in notice
     assert answer == "echo:BRIEF QUESTION"
 
 

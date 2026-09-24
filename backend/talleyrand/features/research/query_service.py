@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from typing import Literal
 
 from talleyrand.core.llm import (
+    AGENT_PROVIDERS,
     PdfAttachment,
     StreamChunk,
     resolve_api_key,
@@ -17,6 +18,8 @@ from talleyrand.features.graph.dtos import GraphNoId
 from talleyrand.features.research.context_builder import (
     build_research_context,
     collect_research_pdf_documents,
+    read_pdfs_as_text,
+    replace_documents,
 )
 from talleyrand.features.research.context_fitting import fit_research_context
 from talleyrand.features.research.prompts import RESEARCH_ANSWERER_INSTRUCTIONS
@@ -47,6 +50,15 @@ async def do_research_query(
 
     instructions = RESEARCH_ANSWERER_INSTRUCTIONS
 
+    pdfs = collect_research_pdf_documents(graph, node_id)
+    if node_llm_model.provider in AGENT_PROVIDERS:
+        # An agent reads a PDF as the text document its text layer makes, so
+        # the text is fitted like any other document. The PDFs left over have
+        # no text to give, and the answer says so.
+        readable, unreadable = await read_pdfs_as_text(pdfs)
+        graph = replace_documents(graph, readable)
+        pdfs = [doc for doc, _reason in unreadable]
+
     # A case can hold more reading than the model can take. The documents are
     # what gives way: the brief and the tree are what the question is about.
     context = await fit_research_context(
@@ -57,8 +69,7 @@ async def do_research_query(
     )
 
     pdf_documents = [
-        PdfAttachment(filename=f"{doc.name}.pdf", data_uri=doc.content)
-        for doc in collect_research_pdf_documents(graph, node_id)
+        PdfAttachment(filename=f"{doc.name}.pdf", data_uri=doc.content) for doc in pdfs
     ]
 
     return await stream_text(
