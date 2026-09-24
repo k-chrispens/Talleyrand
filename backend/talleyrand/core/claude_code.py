@@ -7,9 +7,13 @@ tools, no MCP servers, no skills, and none of the operator's own settings,
 hooks, plugins or CLAUDE.md (--safe-mode), so nothing but Talleyrand's prompt
 shapes the answer and nothing in a case can make it act.
 
-The CLI's first event reports what the run actually got. A run that got tools
-or API-key auth is killed the moment that event is printed, before the model
-is called; a run that never prints it is not trusted either. The CLI's contract was
+What a run may do is set by those flags and by the environment it starts with
+(core/agent_cli.py passes no API keys). The CLI's first event reports what the
+run actually got, and a run that reports tools or API-key auth is killed at
+that event, with no grace period. That is a fast stop, not a guarantee: the
+CLI does not wait for the check, so a call it starts within a millisecond or
+two of printing the event still goes out. A run that never reports its setup
+is not trusted either. The CLI's contract was
 checked against Claude Code 2.1.280 on 2026-09-23 (see PLAN.md).
 """
 
@@ -89,7 +93,15 @@ def _check_init(event: dict[str, Any]) -> None:
             f"Claude Code authenticated with {auth} instead of your Claude subscription; "
             "refusing to run on API billing. Unset it and sign in with `claude auth login`."
         )
-    extra_tools = set(event.get("tools") or []) - ALLOWED_TOOLS
-    if extra_tools or event.get("mcp_servers"):
-        names = ", ".join(sorted(extra_tools) + [str(s) for s in event.get("mcp_servers", [])])
+    # Evidence of no tools is an empty list, not a missing field: a CLI release
+    # that renames or reshapes these must fail here, not pass as tool-free.
+    tools, mcp_servers = event.get("tools"), event.get("mcp_servers")
+    if not isinstance(tools, list) or not isinstance(mcp_servers, list):
+        raise ClaudeCodeError(
+            "Claude Code did not report which tools the run has; refusing. Its output "
+            "format may have changed (checked against 2.1.280)."
+        )
+    extra_tools = set(tools) - ALLOWED_TOOLS
+    if extra_tools or mcp_servers:
+        names = ", ".join(sorted(extra_tools) + [str(s) for s in mcp_servers])
         raise ClaudeCodeError(f"Claude Code started with tools enabled ({names}); refusing.")

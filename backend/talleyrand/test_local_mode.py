@@ -16,12 +16,12 @@ strangers out now has to come from the request itself:
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from talleyrand.core.config import settings
+from talleyrand.core.config import LOCAL_FRONTEND_ORIGIN
 from talleyrand.features.auth_jwt.router import router as auth_jwt_router
 from talleyrand.main import apply_local_mode
 
 LOOPBACK = ("127.0.0.1", 50000)
-FRONTEND = settings.cors_origins[0]
+FRONTEND = LOCAL_FRONTEND_ORIGIN
 
 
 def _local_app() -> FastAPI:

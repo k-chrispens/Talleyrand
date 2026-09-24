@@ -4,7 +4,7 @@ import {
   MODELS,
   isRetiredModel,
   modelLabel,
-  resolveModelId,
+  offerableModelId,
 } from '../../config/models';
 import { researchGenerationService } from '../../services/researchGenerationService';
 import { useNodeContentStore } from '../../stores/nodeContentStore';
@@ -19,7 +19,7 @@ import type { ModelType } from '../../types';
 export const RegenerateButton: FC<{ nodeId: string }> = ({ nodeId }) => {
   const answeredBy = useNodeContentStore(s => s.nodeContents[nodeId]?.selectedModel);
   const [open, setOpen] = useState(false);
-  const [model, setModel] = useState<ModelType>(() => resolveModelId(answeredBy));
+  const [model, setModel] = useState<ModelType>(() => offerableModelId(answeredBy));
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -43,7 +43,7 @@ export const RegenerateButton: FC<{ nodeId: string }> = ({ nodeId }) => {
 
   const toggleOpen = () => {
     if (!open) {
-      setModel(resolveModelId(answeredBy));
+      setModel(offerableModelId(answeredBy));
     }
     setOpen(!open);
   };

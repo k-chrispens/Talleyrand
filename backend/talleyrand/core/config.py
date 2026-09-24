@@ -9,6 +9,9 @@ from typing import Literal, Self
 from pydantic import AnyUrl, EmailStr, Field, HttpUrl, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The one frontend a local session serves (start-local.sh runs it here).
+LOCAL_FRONTEND_ORIGIN = "http://localhost:3000"
+
 
 class Settings(BaseSettings):
     """
@@ -187,6 +190,10 @@ class Settings(BaseSettings):
             # stream tickets, which a restart would drop anyway.
             if not self.jwt_secret_key:
                 self.jwt_secret_key = secrets.token_hex(32)
+            # With no sign-in, an allowed origin can act as the operator. Only
+            # the frontend the session serves qualifies, whatever a .env shared
+            # with a hosted-style setup lists.
+            self.cors_origins = [LOCAL_FRONTEND_ORIGIN]
             return self
         missing = [
             name

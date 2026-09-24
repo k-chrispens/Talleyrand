@@ -15,8 +15,10 @@ as the CLI allows:
 
 Hermes has no system-prompt flag; Talleyrand's instructions travel in
 HERMES_EPHEMERAL_SYSTEM_PROMPT, added to Hermes's own short default prompt.
-Its stream-json output does not say which tools a run had, so a run that
-reports calling one is killed at that event, before the tool finishes. Nor is there a schema flag: structured
+Its stream-json output does not say which tools a run had. What keeps a run
+tool-free is the toolset; as a backstop, a run that reports any tool activity
+is killed at that event. That catches a toolset change, not the tool itself:
+Hermes starts a tool as it reports it, so a fast one has already run. Nor is there a schema flag: structured
 calls ask for JSON in the instructions and are validated here, with one
 repair attempt. Checked against Hermes 0.21.4 on 2026-09-23 (see PLAN.md).
 Failed requests are dumped, prompt included, to ~/.hermes/sessions.
@@ -107,8 +109,9 @@ async def run_structured[SchemaT: BaseModel](
 
 
 def _refuse_tools(event: dict[str, Any]) -> None:
-    """Stop a run the moment it reports calling a tool: it should have none."""
-    if event.get("type") == "tool_use":
+    """Stop a run the moment it reports tool activity: it should have none."""
+    # Some runtimes report a fast tool only once it has completed.
+    if event.get("type") in ("tool_use", "tool_result"):
         raise HermesError(f"Hermes called a tool ({event.get('name')}); refusing.")
 
 

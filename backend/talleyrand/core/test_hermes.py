@@ -9,6 +9,7 @@ handling itself (timeouts, process-group kills, the environment allowlist) is
 shared with Claude Code and tested there.
 """
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -25,7 +26,7 @@ from talleyrand.core.model_settings import get_model_config
 # Each call answers with the next line of `replies` (the last one repeats), so
 # a test can script a first reply that fails validation and a repair.
 FAKE_HERMES = """#!{python}
-import json, os, pathlib, sys, time
+import json, os, pathlib, signal, sys, time
 
 here = pathlib.Path(__file__).parent
 mode = (here / "mode").read_text().strip()
@@ -46,9 +47,13 @@ def emit(obj):
 emit({{"type": "system", "subtype": "init", "model": "gpt-6-astra", "session_id": "s1"}})
 if mode == "tool":
     emit({{"type": "tool_use", "name": "terminal", "input": {{"command": "ls"}}}})
-    # The tool running: stopped before it finishes, it never marks this.
-    time.sleep(10)
+    # A long tool ignoring SIGTERM: killed outright, it never marks this.
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    time.sleep(2)
     (here / "tool_ran").write_text("yes")
+if mode == "tool_result_only":
+    # Some runtimes report a fast tool only once it has completed.
+    emit({{"type": "tool_result", "name": "terminal", "output": "", "duration_ms": 1}})
 if mode == "rejected":
     emit({{"type": "result", "session_id": "s1", "exit_code": 1,
            "text": "ChatGPT or Codex Subscription rejected the request.", "error": "HTTP 400"}})
@@ -137,11 +142,19 @@ async def test_api_keys_in_the_server_environment_never_reach_hermes(fake_hermes
 
 
 @pytest.mark.asyncio
-async def test_a_run_that_calls_a_tool_is_stopped_as_soon_as_it_does(fake_hermes):
+async def test_a_run_that_calls_a_tool_is_killed_at_that_event(fake_hermes):
     fake_hermes.mode("tool")
     with pytest.raises(HermesError, match="terminal"):
         await hermes.run(system_prompt="sys", prompt="hi")
+    await asyncio.sleep(2.5)
     assert not (fake_hermes.directory / "tool_ran").exists()
+
+
+@pytest.mark.asyncio
+async def test_a_tool_reported_only_once_it_finished_is_refused(fake_hermes):
+    fake_hermes.mode("tool_result_only")
+    with pytest.raises(HermesError, match="terminal"):
+        await hermes.run(system_prompt="sys", prompt="hi")
 
 
 @pytest.mark.asyncio

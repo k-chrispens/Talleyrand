@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from talleyrand.core.config import settings
+from talleyrand.core.config import LOCAL_FRONTEND_ORIGIN, settings
 from talleyrand.core.llm import StructuredGenerationError
 from talleyrand.features.auth_jwt.router import require_auth
 from talleyrand.features.auth_jwt.router import router as auth_jwt_router
@@ -82,7 +82,7 @@ def apply_local_mode(app: FastAPI, email: str) -> None:
     local_user = User(id="local", email=email, name="Local")
     app.dependency_overrides[require_auth] = lambda: local_user
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
-    app.add_middleware(LocalOnlyMiddleware, allowed_origins=settings.cors_origins)
+    app.add_middleware(LocalOnlyMiddleware, allowed_origins=[LOCAL_FRONTEND_ORIGIN])
 
 
 if settings.local_mode:

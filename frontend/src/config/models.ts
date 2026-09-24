@@ -154,20 +154,27 @@ export const RETIRED_MODELS: Record<string, { label: string; replacedBy: ModelTy
 };
 
 /** Current preset for a stored id, translating retired ids to their replacements. */
-/**
- * Whether this build can run a provider's models: the agent CLIs only in a
- * local session. Anywhere else an agent preset is not a choice at all, so a
- * stored one (localStorage is shared by every app on localhost:3000) falls
- * back to the default instead of failing at answer time.
- */
+/** Whether this build can run a provider's models: the agent CLIs only in a local session. */
 export const isProviderAvailable = (provider: ModelProvider): boolean =>
   !!AGENT_BACKEND || !AGENT_PROVIDERS.includes(provider);
 
 export function resolveModelId(modelId: string | undefined | null): ModelType {
   if (!modelId) return DEFAULT_MODEL;
-  const model = MODELS.find(m => m.id === modelId);
-  if (model) return isProviderAvailable(model.provider) ? model.id : DEFAULT_MODEL;
+  if (MODELS.some(m => m.id === modelId)) return modelId as ModelType;
   return RETIRED_MODELS[modelId]?.replacedBy ?? DEFAULT_MODEL;
+}
+
+/**
+ * A stored id as something to offer as a choice (a default, a picker's
+ * starting point): like resolveModelId, but a model this build cannot run
+ * falls back to the default. localStorage is shared by every app on
+ * localhost:3000, so a local session's agent default reaches other builds.
+ * Never use this to normalize stored data: a case must keep the agent model a
+ * question names for when it is next opened in a local session.
+ */
+export function offerableModelId(modelId: string | undefined | null): ModelType {
+  const id = resolveModelId(modelId);
+  return isProviderAvailable(modelProvider(id)) ? id : DEFAULT_MODEL;
 }
 
 /** Display name for a stored id — names the model that actually ran, retired or not. */

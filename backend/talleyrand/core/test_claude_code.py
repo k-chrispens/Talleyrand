@@ -35,7 +35,7 @@ from talleyrand.core.llm import (
 from talleyrand.core.model_settings import get_model_config
 
 FAKE_CLAUDE = """#!{python}
-import json, os, pathlib, subprocess, sys, time
+import json, os, pathlib, signal, subprocess, sys, time
 
 here = pathlib.Path(__file__).parent
 mode = (here / "mode").read_text().strip()
@@ -56,11 +56,15 @@ if mode == "api_key":
     init["apiKeySource"] = "ANTHROPIC_API_KEY"
 if mode == "tools":
     init["tools"] = ["Bash"]
+if mode == "no_tools_field":
+    del init["tools"]
 if mode != "no_init":
     print(json.dumps(init), flush=True)
 if mode in ("api_key", "tools"):
-    # The model call the check must prevent: billed, and marked, if it runs.
-    time.sleep(10)
+    # A CLI that shrugs off SIGTERM and gets on with its model call, which
+    # is marked if it runs. The refusal must not wait out a grace period.
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    time.sleep(2)
     (here / "billed").write_text("yes")
 
 if mode == "hang":
@@ -170,22 +174,54 @@ async def test_api_keys_in_the_server_environment_never_reach_the_cli(fake_claud
 
 
 @pytest.mark.asyncio
-async def test_a_run_on_an_api_key_is_stopped_before_the_model_is_called(fake_claude):
+async def test_a_run_on_an_api_key_is_killed_at_its_init_event(fake_claude):
     fake_claude.mode("api_key")
     started = time.monotonic()
     with pytest.raises(ClaudeCodeError, match="ANTHROPIC_API_KEY"):
         await claude_code.run(system_prompt="sys", prompt="hi")
-    # Stopped at the init event, not after the run: nothing was billed.
-    assert time.monotonic() - started < 8
+    # Killed outright at the event, not after a grace period: the call it
+    # would have made two seconds later never happens.
+    assert time.monotonic() - started < 1.5
+    await asyncio.sleep(1)
     assert not (fake_claude.directory / "billed").exists()
 
 
 @pytest.mark.asyncio
-async def test_a_run_that_was_given_tools_is_stopped_before_it_can_use_them(fake_claude):
+async def test_a_run_that_was_given_tools_is_killed_at_its_init_event(fake_claude):
     fake_claude.mode("tools")
     with pytest.raises(ClaudeCodeError, match="Bash"):
         await claude_code.run(system_prompt="sys", prompt="hi")
+    await asyncio.sleep(1)
     assert not (fake_claude.directory / "billed").exists()
+
+
+@pytest.mark.asyncio
+async def test_an_init_event_that_does_not_list_its_tools_is_refused(fake_claude):
+    # No list is no evidence of no tools; a CLI that renames the field must
+    # not slip through as tool-free.
+    fake_claude.mode("no_tools_field")
+    with pytest.raises(ClaudeCodeError, match="tools"):
+        await claude_code.run(system_prompt="sys", prompt="hi")
+
+
+@pytest.mark.asyncio
+async def test_a_run_still_in_flight_is_killed_by_the_exit_hook(fake_claude):
+    # A forced server exit (a second Ctrl-C) skips the orderly shutdown that
+    # cancels runs; the exit hook must still take their process groups down.
+    fake_claude.mode("hang")
+    task = asyncio.create_task(claude_code.run(system_prompt="sys", prompt="hi"))
+    for _ in range(100):
+        if fake_claude.child_pid() is not None:
+            break
+        await asyncio.sleep(0.05)
+    agent_cli._kill_live_groups()
+    child = fake_claude.child_pid()
+    assert child is not None
+    assert _is_dead(child)
+    task.cancel()
+    with pytest.raises((asyncio.CancelledError, ClaudeCodeError)):
+        await task
+    assert agent_cli._live_groups == set()
 
 
 @pytest.mark.asyncio

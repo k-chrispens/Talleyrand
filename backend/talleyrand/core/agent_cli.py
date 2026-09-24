@@ -12,15 +12,20 @@ CLI, whatever model a request names. What every backend gets from here:
   inherited ANTHROPIC_API_KEY or OPENAI_API_KEY would silently bill the run to
   an API instead of the subscription;
 - one concurrency cap across backends, since calls share a usage window;
-- output read as it is printed, so a backend can stop a run at the first
-  event that shows it is not what it should be (API-key auth, tools), before
-  the model is called or a tool finishes;
+- output read as it is printed, so a backend can kill a run at the first
+  event that shows it is not what it should be (API-key auth, tools). This
+  is a fast stop, not a guarantee: the CLI does not wait for the check, so
+  whatever it does in the millisecond or two before the kill still happens.
+  What a run is allowed to do is decided by the flags and environment it
+  starts with;
 - a timeout, and on timeout, refusal or cancellation (a deleted question, a
   forced retry, shutdown) the whole process group killed before the error
-  propagates.
+  propagates. Groups still alive when the server exits without its orderly
+  shutdown (a second Ctrl-C) are killed by an exit hook.
 """
 
 import asyncio
+import atexit
 import contextlib
 import json
 import os
@@ -42,6 +47,9 @@ KILL_GRACE_SECONDS = 5.0
 LINE_LIMIT = 64 * 1024 * 1024
 
 _slots = asyncio.Semaphore(settings.agent_concurrency)
+
+# Process groups of runs in flight, for the exit hook below.
+_live_groups: set[int] = set()
 
 
 class AgentError(Exception):
@@ -87,6 +95,7 @@ async def run_cli(
             )
         except FileNotFoundError as e:
             raise error(f"`{args[0]}` was not found. {error.setup_hint}") from e
+        _live_groups.add(proc.pid)
         try:
             async with asyncio.timeout(settings.agent_timeout_seconds):
                 events, stderr = await _read(proc, prompt, on_event)
@@ -95,9 +104,15 @@ async def run_cli(
             raise error(
                 f"{error.label} did not finish within {settings.agent_timeout_seconds:.0f} seconds."
             ) from e
+        except AgentError:
+            # A refused run gets no chance to finish what it started.
+            await _kill(proc, grace=0)
+            raise
         except BaseException:
             await _kill(proc)
             raise
+        finally:
+            _live_groups.discard(proc.pid)
     return events, stderr, proc.returncode
 
 
@@ -143,14 +158,23 @@ def stderr_tail(stderr: bytes, returncode: int | None) -> str:
     return stderr.decode(errors="replace").strip()[-500:] or f"exit code {returncode}"
 
 
-async def _kill(proc: asyncio.subprocess.Process) -> None:
+async def _kill(proc: asyncio.subprocess.Process, grace: float = KILL_GRACE_SECONDS) -> None:
     """Terminate the run's process group, escalating to SIGKILL, and reap it."""
     try:
-        os.killpg(proc.pid, signal.SIGTERM)
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(proc.wait(), KILL_GRACE_SECONDS)
+        if grace > 0:
+            os.killpg(proc.pid, signal.SIGTERM)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(proc.wait(), grace)
         # Whatever is still in the group: a stuck CLI, or a child it left behind.
         os.killpg(proc.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
     await proc.wait()
+
+
+@atexit.register
+def _kill_live_groups() -> None:
+    """Kill every run still in flight; the server is exiting without them."""
+    for pgid in list(_live_groups):
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pgid, signal.SIGKILL)

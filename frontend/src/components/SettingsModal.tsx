@@ -1,6 +1,6 @@
 import { FC, ReactNode, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { type ModelType, MODELS, resolveModelId } from '../config/models';
+import { type ModelType, MODELS, offerableModelId } from '../config/models';
 import { ModelPicker } from './ui/ModelPicker';
 import { useResearchStore } from '../stores/researchStore';
 import { iconTooltip } from './ui/TooltipLayer';
@@ -164,7 +164,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose, onSave 
     () => localStorage.getItem('anthropic_api_key') || ''
   );
   const [defaultModel, setDefaultModel] = useState<ModelType>(() =>
-    resolveModelId(localStorage.getItem('default_model'))
+    offerableModelId(localStorage.getItem('default_model'))
   );
   const [webSearchEnabled, setWebSearchEnabled] = useState(
     () => localStorage.getItem('web_search_enabled') !== 'false'

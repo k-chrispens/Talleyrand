@@ -8,7 +8,7 @@ without them, and the Claude Code backend can only be switched on locally.
 import pytest
 from pydantic import ValidationError
 
-from talleyrand.core.config import Settings
+from talleyrand.core.config import LOCAL_FRONTEND_ORIGIN, Settings
 
 HOSTED_ONLY = ("JWT_SECRET_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI")
 
@@ -53,3 +53,11 @@ def test_agent_limits_that_would_hang_every_call_are_refused(field, value):
     # Zero slots never grants one, and the timeout only starts inside a slot.
     with pytest.raises(ValidationError, match=field):
         Settings(_env_file=None, local_mode=True, **{field: value})
+
+
+def test_local_mode_trusts_only_the_frontend_it_serves(bare_env, monkeypatch):
+    # backend/.env is shared with the hosted-style compose setup; its CORS
+    # origins (a staging site, say) must not be trusted by a session with no
+    # sign-in.
+    monkeypatch.setenv("CORS_ORIGINS", '["https://staging.example"]')
+    assert Settings(_env_file=None, local_mode=True).cors_origins == [LOCAL_FRONTEND_ORIGIN]

@@ -45,9 +45,10 @@ for port in 8000 3000; do
   fi
 done
 if [ "$AGENT_BACKEND" = claude_code ]; then
+  # Refused, not warned: a Console or API-key login would bill every call to
+  # the API. The backend also stops such runs, but only once they have started.
   if ! claude auth status --json 2>/dev/null | grep -Eq '"authMethod": *"claude.ai"'; then
-    echo "start-local: warning: Claude Code is not signed in with a Claude subscription." >&2
-    echo "start-local: model calls will fail until you run: claude auth login" >&2
+    die "Claude Code is not signed in with a Claude subscription. Run: claude auth login"
   fi
 else
   provider="${HERMES_PROVIDER:-openai-codex}"
@@ -96,12 +97,18 @@ cleanup() {
   echo "start-local: stopped. MongoDB keeps running; stop it with: docker compose stop mongodb"
 }
 trap cleanup EXIT
-# Ctrl-C and TERM end the script, which runs cleanup exactly once on the way out.
+# Ctrl-C, TERM and a closed terminal (HUP) end the script, which runs cleanup
+# exactly once on the way out.
 trap 'exit 130' INT TERM
+trap 'exit 129' HUP
 
 # Loopback only: local mode has no sign-in, so the network is the boundary.
 (
   cd backend
+  # A closed terminal sends HUP to everything in it, and uvicorn dies on HUP
+  # without shutting down, orphaning any agent run in flight. Ignoring it
+  # leaves the stop to cleanup, whose TERM gets the orderly shutdown.
+  trap '' HUP
   export LOCAL_MODE=true AGENT_BACKEND COOKIE_SECURE=false
   export MONGODB_URL=mongodb://admin:admin@localhost:27017
   exec .venv/bin/uvicorn talleyrand.main:app --host 127.0.0.1 --port 8000 \
