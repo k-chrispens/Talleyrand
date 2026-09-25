@@ -65,6 +65,8 @@ async def run(*, system_prompt: str, prompt: str) -> str:
         settings.hermes_provider,
         "--model",
         settings.hermes_model,
+        "--reasoning",
+        settings.hermes_reasoning,
         "--source",
         "tool",
         "--max-turns",

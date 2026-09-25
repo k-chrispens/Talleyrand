@@ -58,6 +58,8 @@ async def run(*, system_prompt: str, prompt: str, json_schema: dict | None = Non
         "--verbose",
         "--model",
         settings.claude_code_model,
+        "--effort",
+        settings.claude_code_effort,
         "--system-prompt",
         system_prompt,
     ]

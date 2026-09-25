@@ -128,6 +128,7 @@ async def test_hermes_runs_text_only_with_no_config_on_the_pinned_provider(fake_
     assert "--safe-mode" in args
     assert args[args.index("--provider") + 1] == settings.hermes_provider
     assert args[args.index("--model") + 1] == settings.hermes_model
+    assert args[args.index("--reasoning") + 1] == settings.hermes_reasoning
     assert args[args.index("--source") + 1] == "tool"
     assert args[args.index("--query-file") + 1] == "-"
 

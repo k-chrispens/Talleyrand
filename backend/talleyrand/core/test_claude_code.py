@@ -160,6 +160,7 @@ async def test_the_cli_runs_with_no_tools_no_config_and_no_persistence(fake_clau
     assert args[args.index("--permission-prompts") + 1] == "none"
     assert args[args.index("--system-prompt") + 1] == "Be brief."
     assert args[args.index("--model") + 1] == settings.claude_code_model
+    assert args[args.index("--effort") + 1] == settings.claude_code_effort
     assert Path(fake_claude.last_call["cwd"]).resolve() == agent_cli.CWD.resolve()
 
 
