@@ -206,7 +206,7 @@ async def stream(websocket: WebSocket):
             channel.push(event)
     channel.push({"type": "synced"})
 
-    try:
+    async def send_events() -> None:
         while True:
             try:
                 event = await asyncio.wait_for(channel.events.get(), timeout=KEEPALIVE_INTERVAL)
@@ -214,9 +214,22 @@ async def stream(websocket: WebSocket):
                 await websocket.send_json({"type": "keepalive"})
                 continue
             await websocket.send_json(event)
-    except WebSocketDisconnect:
+
+    # The sender alone only notices a closed socket on its next send, up to a
+    # keepalive later — long enough to stall server shutdown. Watching receive
+    # ends the stream the moment either side closes.
+    async def until_disconnect() -> None:
+        while (await websocket.receive())["type"] != "websocket.disconnect":
+            pass
+        raise WebSocketDisconnect
+
+    try:
+        async with asyncio.TaskGroup() as tasks:
+            tasks.create_task(send_events())
+            tasks.create_task(until_disconnect())
+    except* WebSocketDisconnect:
         logger.debug("Job stream client disconnected (graph %s)", graph_id)
-    except Exception:
+    except* Exception:
         logger.exception("Job stream failed (graph %s)", graph_id)
     finally:
         manager.detach(graph_id, channel)
