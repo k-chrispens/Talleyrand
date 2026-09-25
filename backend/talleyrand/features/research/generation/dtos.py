@@ -5,7 +5,12 @@ API contracts for durable generation jobs.
 from datetime import datetime
 from typing import Literal
 
-from talleyrand.features.graph.dtos import BaseSchema, ResearchSuggestionDTO, WebSourceDTO
+from talleyrand.features.graph.dtos import (
+    BaseSchema,
+    ExecutionDTO,
+    ResearchSuggestionDTO,
+    WebSourceDTO,
+)
 from talleyrand.features.research.generation.overlay import effective_error, effective_status
 from talleyrand.features.research.generation.records import GenerationJobRecord, JobKind, JobStatus
 
@@ -47,6 +52,7 @@ class JobDTO(BaseSchema):
     answered_at: datetime | None = None
     sources: list[WebSourceDTO] = []
     sources_found: int = 0
+    execution: ExecutionDTO | None = None
     suggestions: list[ResearchSuggestionDTO] = []
     error: str | None = None
 
@@ -61,6 +67,7 @@ def to_job_dto(record: GenerationJobRecord, live_job_ids: set[str]) -> JobDTO:
         answered_at=record.answered_at,
         sources=record.sources,
         sources_found=record.sources_found,
+        execution=record.execution,
         suggestions=record.suggestions,
         error=effective_error(record, live_job_ids),
     )

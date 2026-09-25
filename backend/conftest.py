@@ -26,3 +26,6 @@ os.environ["GOOGLE_REDIRECT_URI"] = "http://localhost:8000/auth/google/callback"
 # oauth_state cookie is then no longer Secure, the test client starts replaying
 # it, and the tests that must send no cookie quietly send one.
 os.environ["COOKIE_SECURE"] = "true"
+
+# A real key in .env must never reach the suite: Kagi bills every query.
+os.environ["KAGI_API_KEY"] = ""

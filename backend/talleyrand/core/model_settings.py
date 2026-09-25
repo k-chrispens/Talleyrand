@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal, cast
 
+from talleyrand.core.config import settings
+
 type SupportedModel = Literal[
     "gpt-5.6-luna",
     "gpt-5.6-terra",
@@ -12,9 +14,11 @@ type SupportedModel = Literal[
     "claude-fable-5-1-medium",
     "claude-fable-5-1-high",
     "claude-fable-5-1-max",
+    "claude-code",
+    "hermes",
 ]
 
-type Provider = Literal["openai", "anthropic"]
+type Provider = Literal["openai", "anthropic", "claude_code", "hermes"]
 
 # "none" is an explicit GPT-5.6 effort level meaning "do not reason at all" —
 # distinct from reasoning_effort=None, which means "send no effort parameter"
@@ -107,7 +111,32 @@ MODEL_WINDOWS: dict[str, ModelWindow] = {
     "claude-fable-5-1": _anthropic_window(
         "claude-fable-5-1", context_tokens=1_000_000, max_output_tokens=128_000
     ),
+    # The operator's `claude` CLI (core/claude_code.py); which model it runs is
+    # settings.claude_code_model, so these are conservative budgets rather than
+    # a published window. 200K is the standard Claude window; the input budget
+    # leaves room for the answer and for counting with tiktoken, which runs
+    # low on Claude's tokenizer.
+    "claude-code": ModelWindow(
+        provider="claude_code",
+        api_model="claude-code",
+        context_tokens=200_000,
+        max_output_tokens=32_000,
+        max_input_tokens=150_000,
+    ),
+    # The operator's `hermes` CLI (core/hermes.py) on settings.hermes_model.
+    # The same conservative budget: a subscription plan need not grant the
+    # model's full API window.
+    "hermes": ModelWindow(
+        provider="hermes",
+        api_model="hermes",
+        context_tokens=200_000,
+        max_output_tokens=32_000,
+        max_input_tokens=150_000,
+    ),
 }
+
+# The preset (and window) each agent backend runs under.
+AGENT_PRESETS: dict[str, str] = {"claude_code": "claude-code", "hermes": "hermes"}
 
 
 def get_model_window(api_model: str) -> ModelWindow:
@@ -117,6 +146,17 @@ def get_model_window(api_model: str) -> ModelWindow:
     except KeyError:
         known = ", ".join(MODEL_WINDOWS)
         raise ValueError(f"No context window recorded for '{api_model}'. Known: {known}") from None
+
+
+def auxiliary_window(api_model: str) -> ModelWindow:
+    """
+    The window a fixed-model feature (kickstart, suggestions, reports) fits its
+    prompt to: its own API model's, or the agent's when a local session runs
+    that work on an agent CLI instead.
+    """
+    if settings.agent_backend is not None:
+        return MODEL_WINDOWS[AGENT_PRESETS[settings.agent_backend]]
+    return get_model_window(api_model)
 
 
 @dataclass
@@ -247,6 +287,23 @@ MODEL_CONFIGS: dict[SupportedModel, ModelConfig] = {
         reasoning_effort="max",
         refusal_fallback=True,
         plain_prose=True,
+    ),
+    # The agent CLIs, only usable in a local session (settings.local_mode).
+    "claude-code": ModelConfig(
+        id="claude-code",
+        api_model="claude-code",
+        label="Claude Code",
+        description="Your Claude subscription, no web search yet",
+        order=11,
+        reasoning_effort=None,
+    ),
+    "hermes": ModelConfig(
+        id="hermes",
+        api_model="hermes",
+        label="Hermes",
+        description="Your ChatGPT subscription via Hermes, no web search yet",
+        order=12,
+        reasoning_effort=None,
     ),
 }
 

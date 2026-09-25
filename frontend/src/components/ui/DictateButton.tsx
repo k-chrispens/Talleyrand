@@ -1,4 +1,6 @@
 import { FC, useEffect, useRef } from 'react';
+import { isProviderKeyConfigured } from '../../client';
+import { AGENT_BACKEND } from '../../config/constants';
 import { useDictation } from '../../hooks/useDictation';
 
 const MicIcon: FC<{ className?: string }> = ({ className = 'h-4 w-4' }) => (
@@ -79,7 +81,9 @@ export const DictateButton: FC<DictateButtonProps> = ({
     onErrorRef.current?.(dictation.error);
   }, [dictation.error]);
 
-  if (!dictation.isSupported) return null;
+  // Transcription runs on OpenAI with the browser's key; a local session runs
+  // on an agent instead, so without that key there is nothing to transcribe with.
+  if (!dictation.isSupported || (AGENT_BACKEND && !isProviderKeyConfigured('openai'))) return null;
 
   return (
     <>

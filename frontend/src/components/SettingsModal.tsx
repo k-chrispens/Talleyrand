@@ -1,10 +1,11 @@
 import { FC, ReactNode, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { type ModelType, MODELS, resolveModelId } from '../config/models';
+import { type ModelType, MODELS, offerableModelId } from '../config/models';
 import { ModelPicker } from './ui/ModelPicker';
 import { useResearchStore } from '../stores/researchStore';
 import { iconTooltip } from './ui/TooltipLayer';
 import { AuthService } from '../services/authService';
+import { AGENT_BACKEND } from '../config/constants';
 import { saveNow } from '../services/autosaveSubscriptions';
 import { useAuth } from '../contexts/AuthContext';
 import { getConsent, isAnalyticsConfigured, setConsent } from '../services/analyticsConsent';
@@ -164,7 +165,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose, onSave 
     () => localStorage.getItem('anthropic_api_key') || ''
   );
   const [defaultModel, setDefaultModel] = useState<ModelType>(() =>
-    resolveModelId(localStorage.getItem('default_model'))
+    offerableModelId(localStorage.getItem('default_model'))
   );
   const [webSearchEnabled, setWebSearchEnabled] = useState(
     () => localStorage.getItem('web_search_enabled') !== 'false'
@@ -396,12 +397,15 @@ export const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose, onSave 
         {/* Footer */}
         <div className="flex items-center justify-between gap-4 border-t border-stone-200 px-6 py-3.5">
           <div className="flex min-w-0 items-center gap-2">
-            <button
-              onClick={handleSignOut}
-              className="flex-shrink-0 rounded-md px-2 py-1 text-[13px] text-stone-500 transition-colors hover:text-stone-800"
-            >
-              Sign out
-            </button>
+            {/* A local session has no sign-in to leave. */}
+            {!AGENT_BACKEND && (
+              <button
+                onClick={handleSignOut}
+                className="flex-shrink-0 rounded-md px-2 py-1 text-[13px] text-stone-500 transition-colors hover:text-stone-800"
+              >
+                Sign out
+              </button>
+            )}
             {user?.email && (
               <span className="truncate font-serif text-[12px] text-stone-400">{user.email}</span>
             )}

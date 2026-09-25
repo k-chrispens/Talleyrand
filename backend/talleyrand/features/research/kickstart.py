@@ -13,12 +13,13 @@ from typing import Annotated
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from talleyrand.core.llm import fit_to_context, parse_structured
-from talleyrand.core.model_settings import get_model_window
+from talleyrand.core.config import settings
+from talleyrand.core.llm import StructuredGenerationError, fit_to_context, parse_structured
+from talleyrand.core.model_settings import auxiliary_window
 from talleyrand.core.prompts import TALLEYRAND_DESCRIPTION
-from talleyrand.features.graph.dependencies import get_openai_api_key
+from talleyrand.features.graph.dependencies import get_auxiliary_api_key
 from talleyrand.features.graph.dtos import DocumentDTO
-from talleyrand.features.research.context_builder import format_documents
+from talleyrand.features.research.context_builder import format_documents, read_pdfs_as_text
 from talleyrand.features.research.dtos import (
     KickstartBriefRequestDTO,
     KickstartBriefResponseDTO,
@@ -27,7 +28,7 @@ from talleyrand.features.research.dtos import (
     KickstartQuestionsResponseDTO,
 )
 
-KICKSTART_MODEL = get_model_window("gpt-6-astra")
+KICKSTART_MODEL = auxiliary_window("gpt-6-astra")
 KICKSTART_REASONING_EFFORT = "low"
 # Caps only the model's own proposals; the user's own questions extracted from
 # the notes are always returned in full, however many there are.
@@ -127,6 +128,13 @@ async def _user_content(
     documents together are more than the model accepts.
     """
     parts = list(sections)
+    if settings.agent_backend is not None:
+        # An agent reads a PDF as the text document its text layer makes.
+        readable, unreadable = await read_pdfs_as_text([d for d in documents if d.type == "pdf"])
+        if unreadable:
+            doc, reason = unreadable[0]
+            raise StructuredGenerationError(f"{doc.name}.pdf could not be read: {reason}.")
+        documents = [readable.get(doc.id, doc) for doc in documents]
     if documents:
         attached = "\n".join(format_documents(documents, "", label="ATTACHED DOCUMENTS"))
         parts.append(
@@ -163,7 +171,7 @@ def _question_list_section(title: str, questions: list[str]) -> str:
 
 async def generate_brief(
     payload: KickstartBriefRequestDTO,
-    openai_api_key: Annotated[str, Depends(get_openai_api_key)],
+    openai_api_key: Annotated[str, Depends(get_auxiliary_api_key)],
 ) -> KickstartBriefResponseDTO:
     """Generate the case brief from the user's kickoff notes."""
     notes = payload.input_text.strip()
@@ -189,7 +197,7 @@ async def generate_brief(
 
 async def generate_questions(
     payload: KickstartQuestionsRequestDTO,
-    openai_api_key: Annotated[str, Depends(get_openai_api_key)],
+    openai_api_key: Annotated[str, Depends(get_auxiliary_api_key)],
 ) -> KickstartQuestionsResponseDTO:
     """Generate starting questions from the kickoff notes and list state."""
     notes = payload.input_text.strip()

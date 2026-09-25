@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from talleyrand.core.llm import parse_structured
-from talleyrand.core.model_settings import get_model_window
+from talleyrand.core.model_settings import auxiliary_window
 from talleyrand.core.prompts import TALLEYRAND_DESCRIPTION
 from talleyrand.features.graph.dtos import GraphNoId
 from talleyrand.features.research.context_builder import (
@@ -20,7 +20,7 @@ from talleyrand.features.research.context_fitting import fit_research_context
 from talleyrand.features.research.dtos import BigPictureQuestionDTO
 
 MAX_SUGGESTIONS = 5
-SUGGESTER_MODEL = get_model_window("gpt-6-astra")
+SUGGESTER_MODEL = auxiliary_window("gpt-6-astra")
 SUGGESTER_REASONING_EFFORT = "medium"
 
 Persona = Literal[

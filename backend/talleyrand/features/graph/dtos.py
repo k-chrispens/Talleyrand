@@ -119,6 +119,19 @@ class WebSourceDTO(BaseSchema):
         return url
 
 
+class ExecutionDTO(BaseSchema):
+    """
+    How an agent CLI answer was produced: the provider (claude_code, hermes),
+    the model it reported, and notes on what it could not use. Shown beside
+    the answer; never fed back into any prompt. Absent on API-key answers and
+    on answers from before it was recorded.
+    """
+
+    provider: str
+    model: str | None = None
+    notes: list[str] = []
+
+
 class NodeContentDTO(BaseSchema):
     """
     Data Transfer Object for node content in the graph system.
@@ -163,6 +176,10 @@ class NodeContentDTO(BaseSchema):
     # How many pages the searches surfaced in total. Larger than the list above
     # when the haul was too big to keep whole.
     sources_found: int = 0
+
+    # How the answer was produced, for answers from an agent CLI. Recorded
+    # with the answer and replaced whenever it is regenerated.
+    execution: ExecutionDTO | None = None
 
 
 class ResearchSuggestionDTO(BaseSchema):

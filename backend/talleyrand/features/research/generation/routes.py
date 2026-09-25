@@ -15,7 +15,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from talleyrand.features.auth_jwt import router as auth_app
 from talleyrand.features.auth_jwt import service as auth_service
-from talleyrand.features.graph.dependencies import get_openai_api_key
+from talleyrand.features.graph.dependencies import get_auxiliary_api_key
 from talleyrand.features.graph.models import GraphDataRepository, get_graph_repo
 from talleyrand.features.research.cheat_sheet import has_thread_to_summarize
 from talleyrand.features.research.generation.dtos import (
@@ -87,7 +87,7 @@ async def generate_cheat_sheet(
     node_id: UUID,
     graph_repo: Annotated[GraphDataRepository, Depends(get_graph_repo)],
     user: Annotated[User, Depends(auth_app.require_auth)],
-    openai_api_key: Annotated[str, Depends(get_openai_api_key)],
+    openai_api_key: Annotated[str, Depends(get_auxiliary_api_key)],
 ) -> JobDTO:
     """
     Condense the thread above a question on demand: for questions answered
@@ -118,7 +118,7 @@ async def suggest_followups(
     payload: SuggestFollowupsRequestDTO,
     graph_repo: Annotated[GraphDataRepository, Depends(get_graph_repo)],
     user: Annotated[User, Depends(auth_app.require_auth)],
-    openai_api_key: Annotated[str, Depends(get_openai_api_key)],
+    openai_api_key: Annotated[str, Depends(get_auxiliary_api_key)],
 ) -> JobDTO:
     """Start a follow-up suggestion generation; results arrive on the job stream."""
     await _require_graph(graph_repo, user.email, str(graph_id))
@@ -136,7 +136,7 @@ async def suggest_big_picture(
     graph_id: UUID,
     graph_repo: Annotated[GraphDataRepository, Depends(get_graph_repo)],
     user: Annotated[User, Depends(auth_app.require_auth)],
-    openai_api_key: Annotated[str, Depends(get_openai_api_key)],
+    openai_api_key: Annotated[str, Depends(get_auxiliary_api_key)],
 ) -> JobDTO:
     """Start a big-picture suggestion generation; results arrive on the job stream."""
     await _require_graph(graph_repo, user.email, str(graph_id))

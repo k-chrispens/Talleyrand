@@ -5,8 +5,13 @@ stream_text dispatches streaming chat queries to OpenAI (Responses API) or
 Anthropic (Messages API) based on the selected model's provider; it is used by
 the node-query services. It yields the answer as TextChunks interleaved with
 the SourceChunks describing what its web searches turned up. parse_structured
-is the one-shot structured-output call (OpenAI-only) used by kickstart, the
+is the one-shot structured-output call (OpenAI) used by kickstart, the
 suggesters, reports, and auto-naming.
+
+In a local session both can run on the operator's own signed-in agent CLI
+instead (core/claude_code.py, core/hermes.py): answers for questions set to the
+"claude-code" or "hermes" preset, and every structured call, whatever model its
+feature names, on settings.agent_backend.
 """
 
 import asyncio
@@ -39,6 +44,9 @@ from openai.types.responses import (
 )
 from pydantic import BaseModel
 
+from talleyrand.core import claude_code, hermes, kagi
+from talleyrand.core.agent_cli import AgentError
+from talleyrand.core.config import settings
 from talleyrand.core.llm_logging import log_response, log_structured_response
 from talleyrand.core.model_settings import (
     ANTHROPIC_MAX_OUTPUT_TOKENS,
@@ -97,7 +105,15 @@ ANTHROPIC_PLAIN_PROSE_INSTRUCTION = (
 ANTHROPIC_REFUSAL_FALLBACK_BETA = "server-side-fallback-2026-06-01"
 ANTHROPIC_REFUSAL_FALLBACK_MODEL = "claude-opus-4-8"
 
-PROVIDER_LABELS: dict[Provider, str] = {"openai": "OpenAI", "anthropic": "Anthropic"}
+PROVIDER_LABELS: dict[Provider, str] = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "claude_code": "Claude Code",
+    "hermes": "Hermes",
+}
+
+# Providers that run on the operator's signed-in CLI rather than an API key.
+AGENT_PROVIDERS: set[Provider] = {"claude_code", "hermes"}
 
 
 class MissingApiKeyError(Exception):
@@ -113,6 +129,8 @@ class MissingApiKeyError(Exception):
 
 def resolve_api_key(model: ModelConfig, openai_api_key: str, anthropic_api_key: str) -> str:
     """Pick the API key matching the model's provider."""
+    if model.provider in AGENT_PROVIDERS:
+        return ""  # runs on the operator's signed-in CLI
     api_key = openai_api_key if model.provider == "openai" else anthropic_api_key
     if not api_key:
         raise MissingApiKeyError(model.provider)
@@ -126,6 +144,8 @@ def provider_error_detail(exc: Exception) -> str | None:
     Lets the UI show the provider's own explanation (billing, rate limits, overload)
     instead of a generic failure message.
     """
+    if isinstance(exc, AgentError):
+        return f"{exc.label}: {exc}"
     if isinstance(exc, OpenAIAPIError):
         provider_label = PROVIDER_LABELS["openai"]
     elif isinstance(exc, AnthropicAPIError):
@@ -172,6 +192,14 @@ async def parse_structured[SchemaT: BaseModel](
     StructuredGenerationError. user_content is either a plain string or
     Responses-API content parts (input_text + input_file) when PDFs are attached.
     """
+    if settings.agent_backend is not None:
+        return await _parse_structured_agent(
+            caller=caller,
+            provider=settings.agent_backend,
+            system_prompt=system_prompt,
+            user_content=user_content,
+            schema=schema,
+        )
     client = AsyncOpenAI(api_key=api_key)
     try:
         response = await client.responses.parse(
@@ -194,6 +222,47 @@ async def parse_structured[SchemaT: BaseModel](
 
     log_structured_response(caller, response.output_parsed)
     return response.output_parsed
+
+
+async def _parse_structured_agent[SchemaT: BaseModel](
+    *,
+    caller: str,
+    provider: Provider,
+    system_prompt: str,
+    user_content: str | list[dict],
+    schema: type[SchemaT],
+) -> SchemaT:
+    """
+    parse_structured on an agent CLI. Claude Code enforces the
+    schema itself (--json-schema); Hermes is asked for it in the instructions.
+    Either way the result is validated here. There is no web search and no PDF
+    input yet; a PDF is refused rather than dropped, since structured output
+    has nowhere to say it went unread.
+    """
+    label = PROVIDER_LABELS[provider]
+    if isinstance(user_content, list):
+        if any(part.get("type") == "input_file" for part in user_content):
+            raise StructuredGenerationError(
+                f"{label} can't read PDF documents yet. Remove the PDFs, or paste their "
+                "text as a text document."
+            )
+        user_content = "\n\n".join(part["text"] for part in user_content)
+    try:
+        if provider == "hermes":
+            parsed = await hermes.run_structured(
+                system_prompt=system_prompt, prompt=user_content, schema=schema
+            )
+        else:
+            result = await claude_code.run(
+                system_prompt=system_prompt,
+                prompt=user_content,
+                json_schema=schema.model_json_schema(),
+            )
+            parsed = schema.model_validate(result.get("structured_output"))
+    except (AgentError, ValueError) as e:
+        raise StructuredGenerationError(f"{label}: {e}") from e
+    log_structured_response(caller, parsed)
+    return parsed
 
 
 @dataclass
@@ -240,7 +309,21 @@ class SourceChunk:
     source: WebSource
 
 
-type StreamChunk = TextChunk | SourceChunk
+@dataclass(frozen=True)
+class ExecutionChunk:
+    """
+    How an agent CLI answer was produced, sent once with it: the provider, the
+    model the CLI reported, and notes on what the answer could not use (web
+    search, unreadable PDFs). Kept apart from the answer text, so the notes
+    are shown to the reader but never fed back to a model as part of the case.
+    """
+
+    provider: str
+    model: str | None
+    notes: tuple[str, ...] = ()
+
+
+type StreamChunk = TextChunk | SourceChunk | ExecutionChunk
 
 # A single search is enough to blow past any sane list: one OpenAI search
 # returned 39 results in testing, and an answer may run several — ordinary
@@ -249,6 +332,9 @@ type StreamChunk = TextChunk | SourceChunk
 # the answer never used. The full count is reported separately, so a truncated
 # list never under-reports how wide the model actually cast its net.
 MAX_WEB_SOURCES = 60
+
+# Queries an agent answer's web search may run (each billed by Kagi).
+MAX_SEARCH_QUERIES = 3
 
 
 class WebSourceCollector:
@@ -293,9 +379,10 @@ async def count_prompt_tokens(
     """
     What a request carrying this prompt counts as, by the counter that will
     judge it: tiktoken for OpenAI models, Anthropic's token-counting endpoint
-    (which needs the API key) for Claude models.
+    (which needs the API key) for Claude models. The agent CLIs have no counter
+    to ask, so tiktoken estimates them against a budget with room for the error.
     """
-    if model.provider == "openai":
+    if model.provider != "anthropic":
         # tiktoken counting is CPU-bound — keep it off the event loop
         return await asyncio.to_thread(count_tokens, system_prompt + user_prompt, model.api_model)
     client = AsyncAnthropic(api_key=api_key)
@@ -417,6 +504,17 @@ async def stream_text(
     if pdf_documents:
         logger.info(f"Attaching {len(pdf_documents)} PDF document(s) to request")
 
+    if model.provider in AGENT_PROVIDERS:
+        return await _stream_agent(
+            caller=caller,
+            provider=model.provider,
+            instructions=instructions,
+            cached_prefix=cached_prefix,
+            user_prompt=user_prompt,
+            pdf_documents=pdf_documents,
+            web_search_enabled=web_search_enabled,
+            verbosity=verbosity,
+        )
     if model.provider == "openai":
         return await _stream_openai(
             caller=caller,
@@ -441,6 +539,128 @@ async def stream_text(
         web_search_enabled=web_search_enabled,
         verbosity=verbosity,
     )
+
+
+async def _stream_agent(
+    *,
+    caller: str,
+    provider: Provider,
+    instructions: str,
+    cached_prefix: str,
+    user_prompt: str,
+    pdf_documents: list[PdfAttachment],
+    web_search_enabled: bool,
+    verbosity: Literal["low", "medium"],
+) -> AsyncGenerator[StreamChunk, None]:
+    """
+    An answer from an agent CLI, delivered whole: the CLI runs to completion
+    before this returns, so its errors raise here like the API providers' do,
+    and the generator then yields the finished answer. The prompt goes as one
+    piece; the CLIs' providers cache its stable opening on their own. What the
+    answer could not use is reported with it (ExecutionChunk), never silently
+    dropped.
+
+    The agent has no tools, so with search on Talleyrand searches for it
+    (_search_the_web) and appends the results, after the cacheable opening.
+    Every result is reported as a source; the ones the answer links to are
+    marked cited.
+    """
+    label = PROVIDER_LABELS[provider]
+    # Neither CLI takes a verbosity setting, so it is asked for in the prompt.
+    if verbosity == "low":
+        instructions += ANTHROPIC_CONCISE_INSTRUCTION
+    instructions += ANTHROPIC_MARKDOWN_LINK_INSTRUCTION
+    prompt = cached_prefix + user_prompt
+
+    notes = []
+    results: list[kagi.SearchResult] = []
+    if web_search_enabled:
+        try:
+            results = await _search_the_web(provider, user_prompt)
+        except (kagi.KagiError, StructuredGenerationError) as e:
+            notes.append(
+                f"Web search did not run ({e}), so this answer draws on the model's own knowledge."
+            )
+        prompt += _search_results_section(results)
+    if pdf_documents:
+        # Readable PDFs reach an agent as text (query_service); these had none.
+        names = ", ".join(doc.filename for doc in pdf_documents)
+        notes.append(
+            f"{names} could not be read: {label} reads a PDF's text, and "
+            f"{'these have' if len(pdf_documents) > 1 else 'this has'} none, a password, "
+            "or damage."
+        )
+
+    if provider == "hermes":
+        answer = await hermes.run(system_prompt=instructions, prompt=prompt)
+        # Hermes runs the model it is given; its output does not name one.
+        model = settings.hermes_model
+    else:
+        result = await claude_code.run(system_prompt=instructions, prompt=prompt)
+        answer = str(result.get("result") or "")
+        model = result.get("model")
+    log_response(caller, answer)
+
+    async def stream_generator() -> AsyncGenerator[StreamChunk, None]:
+        yield ExecutionChunk(provider=provider, model=model, notes=tuple(notes))
+        yield TextChunk(answer)
+        for r in results:
+            # ponytail: cited means linked verbatim; a reworded URL counts as uncited.
+            yield SourceChunk(
+                WebSource(url=r.url, title=r.title, page_age=r.published, cited=r.url in answer)
+            )
+
+    return stream_generator()
+
+
+class SearchQueries(BaseModel):
+    queries: list[str]
+
+
+SEARCH_QUERY_INSTRUCTIONS = f"""You write web search queries for a research assistant.
+The user message is a research case: its question tree and, at the end, the CURRENT QUESTION.
+Write up to {MAX_SEARCH_QUERIES} short keyword queries whose results would help answer the
+CURRENT QUESTION. Each must stand alone: spell out what the case refers to, since the search
+engine sees only the query."""
+
+
+async def _search_the_web(provider: Provider, case_body: str) -> list[kagi.SearchResult]:
+    """
+    Search results for the question that ends case_body: the agent writes the
+    queries (one small structured call), Kagi runs them.
+    """
+    if not settings.kagi_api_key:
+        # Checked first, so a missing key does not spend a query-writing call.
+        raise kagi.KagiError("it needs a Kagi API key, KAGI_API_KEY in backend/.env")
+    # ponytail: queries come from the tree and question alone, not the brief and
+    # documents, to keep this call small.
+    planned = await _parse_structured_agent(
+        caller="web_search_queries",
+        provider=provider,
+        system_prompt=SEARCH_QUERY_INSTRUCTIONS,
+        user_content=case_body,
+        schema=SearchQueries,
+    )
+    queries = [q.strip() for q in planned.queries if q.strip()][:MAX_SEARCH_QUERIES]
+    if not queries:
+        return []
+    results = await kagi.search(queries)
+    logger.info(f"Kagi: {len(queries)} queries, {len(results)} results")
+    return results
+
+
+def _search_results_section(results: list[kagi.SearchResult]) -> str:
+    if not results:
+        return ""
+    lines = [
+        "\n\nWEB SEARCH RESULTS (found for the CURRENT QUESTION just now; these are the "
+        "only web sources you have, so cite the ones you use as Markdown links to their "
+        "exact URLs):"
+    ]
+    for n, r in enumerate(results, start=1):
+        dated = f" ({r.published})" if r.published else ""
+        lines.append(f"[{n}] {r.title}{dated}\n    {r.url}\n    {r.snippet}")
+    return "\n".join(lines)
 
 
 def _release_request_body(stream: object) -> None:

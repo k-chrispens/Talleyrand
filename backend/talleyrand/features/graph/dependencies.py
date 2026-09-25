@@ -6,6 +6,8 @@ from typing import Annotated
 
 from fastapi import Header, HTTPException
 
+from talleyrand.core.config import settings
+
 # The browser client renders a 400's detail verbatim as the error text, so this
 # must read as prose and point at the fix (the Settings modal) — never at the
 # HTTP header the client sets on its own.
@@ -19,3 +21,16 @@ def get_openai_api_key(
     if not x_openai_api_key:
         raise HTTPException(status_code=400, detail=MISSING_OPENAI_KEY_DETAIL)
     return x_openai_api_key
+
+
+def get_auxiliary_api_key(
+    x_openai_api_key: Annotated[str | None, Header()] = None,
+) -> str:
+    """
+    The OpenAI key for kickstart, suggestions, reports and naming. A local
+    session with an agent backend runs that work on the operator's CLI instead,
+    so it needs none.
+    """
+    if settings.agent_backend is not None:
+        return x_openai_api_key or ""
+    return get_openai_api_key(x_openai_api_key)

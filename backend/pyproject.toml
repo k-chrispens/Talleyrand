@@ -14,6 +14,7 @@ dependencies = [
     "openai>=2.6.1",
     "tiktoken>=0.8.0",
     "anthropic>=0.109.1",
+    "pypdf==6.19.0",
 ]
 requires-python = ">=3.12"
 readme = "README.md"
@@ -29,6 +30,8 @@ distribution = false
 [tool.pdm.scripts]
 dev = "uvicorn talleyrand.main:app --reload --host 0.0.0.0 --port 8000"
 start = "uvicorn talleyrand.main:app --host 0.0.0.0 --port 8000"
+# Local mode has no sign-in, so it must never listen beyond this machine.
+local = "uvicorn talleyrand.main:app --host 127.0.0.1 --port 8000"
 lint = "ruff check ."
 format = "ruff format ."
 test = "pytest --show-capture=all"

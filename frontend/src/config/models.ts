@@ -1,10 +1,17 @@
-export const PROVIDERS = ['openai', 'anthropic'] as const;
+import { AGENT_BACKEND } from './constants';
+
+export const PROVIDERS = ['openai', 'anthropic', 'claude_code', 'hermes'] as const;
 
 export type ModelProvider = (typeof PROVIDERS)[number];
+
+/** Providers that run on the operator's signed-in CLI: no API key, local sessions only. */
+export const AGENT_PROVIDERS: readonly ModelProvider[] = ['claude_code', 'hermes'];
 
 export const PROVIDER_LABELS: Record<ModelProvider, string> = {
   openai: 'GPT',
   anthropic: 'Claude',
+  claude_code: 'Claude Code',
+  hermes: 'Hermes',
 };
 
 // Within each provider, models are ordered from fastest to deepest reasoning —
@@ -82,6 +89,21 @@ export const MODELS = [
     description: 'Deepest reasoning (max)',
     inputTokens: 936000,
   },
+  // The agent CLIs, only offered in a local session (AGENT_BACKEND); see ModelPicker.
+  {
+    id: 'claude-code',
+    provider: 'claude_code',
+    label: 'Claude Code',
+    description: 'Your Claude subscription, no web search yet',
+    inputTokens: 150000,
+  },
+  {
+    id: 'hermes',
+    provider: 'hermes',
+    label: 'Hermes',
+    description: 'Your ChatGPT subscription via Hermes, no web search yet',
+    inputTokens: 150000,
+  },
 ] as const satisfies readonly {
   id: string;
   provider: ModelProvider;
@@ -92,7 +114,9 @@ export const MODELS = [
 
 export type ModelType = (typeof MODELS)[number]['id'];
 
-export const DEFAULT_MODEL: ModelType = 'gpt-6-astra-medium';
+// A local session defaults to the agent that runs its other work.
+export const DEFAULT_MODEL: ModelType =
+  AGENT_BACKEND === 'hermes' ? 'hermes' : AGENT_BACKEND ? 'claude-code' : 'gpt-6-astra-medium';
 
 // Presets we have removed, each pointing at its closest current replacement.
 // Mirrors RETIRED_MODELS in the backend's model_settings.py, plus the label the
@@ -130,10 +154,27 @@ export const RETIRED_MODELS: Record<string, { label: string; replacedBy: ModelTy
 };
 
 /** Current preset for a stored id, translating retired ids to their replacements. */
+/** Whether this build can run a provider's models: the agent CLIs only in a local session. */
+export const isProviderAvailable = (provider: ModelProvider): boolean =>
+  !!AGENT_BACKEND || !AGENT_PROVIDERS.includes(provider);
+
 export function resolveModelId(modelId: string | undefined | null): ModelType {
   if (!modelId) return DEFAULT_MODEL;
   if (MODELS.some(m => m.id === modelId)) return modelId as ModelType;
   return RETIRED_MODELS[modelId]?.replacedBy ?? DEFAULT_MODEL;
+}
+
+/**
+ * A stored id as something to offer as a choice (a default, a picker's
+ * starting point): like resolveModelId, but a model this build cannot run
+ * falls back to the default. localStorage is shared by every app on
+ * localhost:3000, so a local session's agent default reaches other builds.
+ * Never use this to normalize stored data: a case must keep the agent model a
+ * question names for when it is next opened in a local session.
+ */
+export function offerableModelId(modelId: string | undefined | null): ModelType {
+  const id = resolveModelId(modelId);
+  return isProviderAvailable(modelProvider(id)) ? id : DEFAULT_MODEL;
 }
 
 /** Display name for a stored id — names the model that actually ran, retired or not. */

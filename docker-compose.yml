@@ -4,7 +4,10 @@ services:
   mongodb:
     image: mongo:8.0
     ports:
-      - "27017:27017"
+      # Loopback only: with throwaway root credentials, the database must not
+      # be reachable from the network. The backend container reaches it over
+      # the internal network instead.
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongodb_data:/data/db
     environment:

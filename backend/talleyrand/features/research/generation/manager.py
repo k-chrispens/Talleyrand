@@ -23,8 +23,13 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from talleyrand.core.config import settings
-from talleyrand.core.llm import SourceChunk, WebSourceCollector, provider_error_detail
-from talleyrand.features.graph.dtos import GraphNoId, WebSourceDTO
+from talleyrand.core.llm import (
+    ExecutionChunk,
+    SourceChunk,
+    WebSourceCollector,
+    provider_error_detail,
+)
+from talleyrand.features.graph.dtos import ExecutionDTO, GraphNoId, WebSourceDTO
 from talleyrand.features.graph.models import DocumentLoad, GraphDataRepository, GraphDocument
 from talleyrand.features.research.big_picture import (
     MAX_SUGGESTIONS as BIG_PICTURE_CAP,
@@ -140,6 +145,10 @@ def _cheat_sheet_event(
     }
 
 
+def _dump(execution: ExecutionDTO | None) -> dict | None:
+    return execution.model_dump(mode="json", by_alias=True) if execution else None
+
+
 def record_event(record: GenerationJobRecord, live_job_ids: set[str]) -> dict | None:
     """
     A stored record's state as a stream event, for replay on attach. Records
@@ -165,6 +174,7 @@ def record_event(record: GenerationJobRecord, live_job_ids: set[str]) -> dict | 
             "answeredAt": record.answered_at.isoformat() if record.answered_at else None,
             "sources": [s.model_dump(mode="json", by_alias=True) for s in record.sources],
             "sourcesFound": record.sources_found,
+            "execution": _dump(record.execution),
         }
     if record.kind != "answer" and record.status == "done":
         return {
@@ -401,6 +411,7 @@ class GenerationJobManager:
             # turn up are collected and delivered once, with the finished
             # answer, since nothing shows them until the answer is complete.
             sources = WebSourceCollector()
+            execution: ExecutionDTO | None = None
             try:
                 while True:
                     try:
@@ -411,6 +422,11 @@ class GenerationJobManager:
                         break
                     if isinstance(chunk, SourceChunk):
                         sources.add(chunk.source)
+                        continue
+                    if isinstance(chunk, ExecutionChunk):
+                        execution = ExecutionDTO(
+                            provider=chunk.provider, model=chunk.model, notes=list(chunk.notes)
+                        )
                         continue
                     job.pending += chunk.text
                     if len(job.pending) >= settings.query_chunk_size:
@@ -441,7 +457,9 @@ class GenerationJobManager:
                 for source in sources.collected()
             ]
             found = sources.found_count()
-            if await repo.complete_answer(record.id, answer, answered_at, collected, found):
+            if await repo.complete_answer(
+                record.id, answer, answered_at, collected, found, execution
+            ):
                 record.status = "done"
                 self._broadcast(
                     graph_id,
@@ -453,6 +471,7 @@ class GenerationJobManager:
                         "answeredAt": answered_at.isoformat(),
                         "sources": [s.model_dump(mode="json", by_alias=True) for s in collected],
                         "sourcesFound": found,
+                        "execution": _dump(execution),
                     },
                 )
         except asyncio.CancelledError:

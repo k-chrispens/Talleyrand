@@ -1,6 +1,7 @@
 import { FC, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  isProviderAvailable,
   MODELS,
   PROVIDER_LABELS,
   PROVIDERS,
@@ -35,7 +36,9 @@ export const ModelPicker: FC<ModelPickerProps> = ({
   const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number } | null>(null);
   const sliderRef = useRef<HTMLInputElement>(null);
 
-  const allowed = allowedModels ? MODELS.filter(m => allowedModels.includes(m.id)) : [...MODELS];
+  const allowed = (
+    allowedModels ? MODELS.filter(m => allowedModels.includes(m.id)) : [...MODELS]
+  ).filter(m => isProviderAvailable(m.provider));
   const availableProviders = PROVIDERS.filter(p => allowed.some(m => m.provider === p));
 
   const provider: ModelProvider =

@@ -1,6 +1,6 @@
 import { FC, RefObject, useEffect, useRef } from 'react';
 import { isProviderKeyConfigured } from '../../client';
-import { modelProvider } from '../../config/models';
+import { modelProvider, PROVIDER_LABELS, type ModelProvider } from '../../config/models';
 import { useNodeContentStore } from '../../stores/nodeContentStore';
 import { useResearchStore } from '../../stores/researchStore';
 import { useUIStateStore } from '../../stores/uiStateStore';
@@ -27,6 +27,7 @@ export const CurrentAnswer: FC<CurrentAnswerProps> = ({ nodeId, scrollContainerR
   const response = useNodeContentStore(s => s.nodeContents[nodeId]?.response ?? '');
   const sources = useNodeContentStore(s => s.nodeContents[nodeId]?.sources);
   const sourcesFound = useNodeContentStore(s => s.nodeContents[nodeId]?.sourcesFound);
+  const execution = useNodeContentStore(s => s.nodeContents[nodeId]?.execution);
   const selectedModel = useNodeContentStore(s => s.nodeContents[nodeId]?.selectedModel);
   const streamText = useResearchStore(s => s.streamTexts[nodeId] ?? '');
   const job = useResearchStore(s => s.jobs[nodeId]);
@@ -141,12 +142,24 @@ export const CurrentAnswer: FC<CurrentAnswerProps> = ({ nodeId, scrollContainerR
         </div>
       ) : displayedText ? (
         <>
+          {showsCompletedAnswer &&
+            execution?.notes.map(note => (
+              <div key={note} className="mb-1 px-1 text-xs italic text-stone-500">
+                {note}
+              </div>
+            ))}
           <SelectableAnswer nodeId={nodeId} />
           {showsCompletedAnswer && (
             <div className="mt-1 flex flex-wrap items-center gap-x-2">
               <RegenerateButton nodeId={nodeId} />
               {/* Keyed so moving to another question never inherits an open list */}
               <AnswerSources key={nodeId} sources={sources ?? []} found={sourcesFound ?? 0} />
+              {execution && (
+                <span className="text-[11px] text-stone-400">
+                  {PROVIDER_LABELS[execution.provider as ModelProvider] ?? execution.provider}
+                  {execution.model && ` · ${execution.model}`}
+                </span>
+              )}
               <div className="ml-auto">
                 <LovedButton nodeId={nodeId} />
               </div>
