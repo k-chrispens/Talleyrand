@@ -2,9 +2,8 @@
 Running a signed-in agent CLI (Claude Code, Hermes) as one model call.
 
 Shared by core/claude_code.py and core/hermes.py. Each call is one process
-that runs on the operator's own subscription instead of an API key, and only
-in a local session (settings.local_mode): a hosted deployment never spawns a
-CLI, whatever model a request names. What every backend gets from here:
+that runs on the operator's own subscription instead of an API key. What every
+backend gets from here:
 
 - the prompt over stdin, never through a shell;
 - a fixed empty working directory, so no project context attaches;
@@ -72,11 +71,6 @@ async def run_cli(
     code). on_event sees each event as it is printed and may raise `error` to
     stop the run right there.
     """
-    if not settings.local_mode:
-        raise error(
-            f"{error.label} is only available in a local session. Start Talleyrand with "
-            "./start-local.sh to use it."
-        )
     CWD.mkdir(parents=True, exist_ok=True)
     child_env = {name: os.environ[name] for name in ENV_ALLOWLIST if name in os.environ}
     child_env |= env or {}

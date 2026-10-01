@@ -104,8 +104,8 @@ class WebSourceDTO(BaseSchema):
         Keep anything but an ordinary web link out of storage.
 
         Real sources are http(s) — they only ever come from a web search the
-        model ran. But a case is also importable from hand-written JSON and
-        shareable by link, so this field is an attacker-controlled string that
+        model ran. But a case is also importable from hand-written JSON, so
+        this field is an attacker-controlled string that
         the reader's browser is later handed; the frontend refuses to build an
         href from anything else (utils/webUrl.ts) and this keeps such a URL
         from being stored in the first place.
@@ -278,36 +278,3 @@ class GraphMetadataDTO(BaseSchema):
     node_count: int
     edge_count: int
     created_at: datetime | None = None
-    # Whether the case is currently readable by anyone holding its link, and
-    # the names of the files that a share link hands out with it.
-    shared: bool
-    document_names: list[str]
-
-
-class SharedGraphViewDTO(BaseSchema):
-    """Public DTO for shared graph view. Intentionally excludes userId and other PII.
-
-    Carries the research-view data too, so a shared case renders with
-    its brief and open suggestions. Read history stays private to the owner.
-    """
-
-    name: str
-    nodes: list[NodeDTO]
-    edges: list[EdgeDTO]
-    node_contents: list[NodeContentDTO]
-    brief: str = ""
-    case_documents: list[DocumentDTO] = []
-    suggestions: list[ResearchSuggestionDTO] = []
-    declined_questions: list[DeclinedQuestionDTO] = []
-
-
-class ShareStatusDTO(BaseSchema):
-    """DTO for share status response."""
-
-    is_shared: bool
-
-
-class CopyGraphResponseDTO(BaseSchema):
-    """DTO for copy graph response."""
-
-    id: str

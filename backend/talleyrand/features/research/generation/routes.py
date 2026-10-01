@@ -10,24 +10,19 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException, WebSocket, status
+from fastapi import Depends, HTTPException, WebSocket, status
 from starlette.websockets import WebSocketDisconnect
 
-from talleyrand.features.auth_jwt import router as auth_app
-from talleyrand.features.auth_jwt import service as auth_service
-from talleyrand.features.graph.dependencies import get_auxiliary_api_key
 from talleyrand.features.graph.models import GraphDataRepository, get_graph_repo
 from talleyrand.features.research.cheat_sheet import has_thread_to_summarize
 from talleyrand.features.research.generation.dtos import (
     GenerateAnswerRequestDTO,
     JobDTO,
-    StreamTicketDTO,
     SuggestFollowupsRequestDTO,
     to_job_dto,
 )
 from talleyrand.features.research.generation.manager import (
     AnswerParams,
-    CheatSheetParams,
     JobChannel,
     SuggestionParams,
     manager,
@@ -38,6 +33,7 @@ from talleyrand.features.research.generation.records import (
     get_job_repo,
 )
 from talleyrand.infra.db import get_db
+from talleyrand.infra.local_user import current_user
 from talleyrand.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -56,9 +52,7 @@ async def generate_answer(
     payload: GenerateAnswerRequestDTO,
     graph_repo: Annotated[GraphDataRepository, Depends(get_graph_repo)],
     job_repo: Annotated[GenerationJobRepository, Depends(get_job_repo)],
-    user: Annotated[User, Depends(auth_app.require_auth)],
-    x_openai_api_key: Annotated[str | None, Header()] = None,
-    x_anthropic_api_key: Annotated[str | None, Header()] = None,
+    user: Annotated[User, Depends(current_user)],
 ) -> JobDTO:
     """Start (or queue) server-owned answer generation for a question node."""
     await _require_graph(graph_repo, user.email, str(graph_id))
@@ -70,8 +64,6 @@ async def generate_answer(
         node_id=str(node_id),
         background=payload.background,
         params=AnswerParams(
-            openai_api_key=x_openai_api_key or "",
-            anthropic_api_key=x_anthropic_api_key or "",
             web_search_enabled=payload.web_search_enabled,
             verbosity=payload.verbosity,
             cheat_sheet=payload.cheat_sheet,
@@ -86,8 +78,7 @@ async def generate_cheat_sheet(
     graph_id: UUID,
     node_id: UUID,
     graph_repo: Annotated[GraphDataRepository, Depends(get_graph_repo)],
-    user: Annotated[User, Depends(auth_app.require_auth)],
-    openai_api_key: Annotated[str, Depends(get_auxiliary_api_key)],
+    user: Annotated[User, Depends(current_user)],
 ) -> JobDTO:
     """
     Condense the thread above a question on demand: for questions answered
@@ -107,7 +98,6 @@ async def generate_cheat_sheet(
         graph_id=str(graph_id),
         user_id=user.email,
         node_id=str(node_id),
-        params=CheatSheetParams(openai_api_key=openai_api_key),
     )
     return to_job_dto(record, manager.live_job_ids())
 
@@ -117,8 +107,7 @@ async def suggest_followups(
     node_id: UUID,
     payload: SuggestFollowupsRequestDTO,
     graph_repo: Annotated[GraphDataRepository, Depends(get_graph_repo)],
-    user: Annotated[User, Depends(auth_app.require_auth)],
-    openai_api_key: Annotated[str, Depends(get_auxiliary_api_key)],
+    user: Annotated[User, Depends(current_user)],
 ) -> JobDTO:
     """Start a follow-up suggestion generation; results arrive on the job stream."""
     await _require_graph(graph_repo, user.email, str(graph_id))
@@ -127,7 +116,7 @@ async def suggest_followups(
         user_id=user.email,
         node_id=str(node_id),
         kind="suggestions",
-        params=SuggestionParams(openai_api_key=openai_api_key, request_more=payload.request_more),
+        params=SuggestionParams(request_more=payload.request_more),
     )
     return to_job_dto(record, manager.live_job_ids())
 
@@ -135,8 +124,7 @@ async def suggest_followups(
 async def suggest_big_picture(
     graph_id: UUID,
     graph_repo: Annotated[GraphDataRepository, Depends(get_graph_repo)],
-    user: Annotated[User, Depends(auth_app.require_auth)],
-    openai_api_key: Annotated[str, Depends(get_auxiliary_api_key)],
+    user: Annotated[User, Depends(current_user)],
 ) -> JobDTO:
     """Start a big-picture suggestion generation; results arrive on the job stream."""
     await _require_graph(graph_repo, user.email, str(graph_id))
@@ -145,26 +133,9 @@ async def suggest_big_picture(
         user_id=user.email,
         node_id=None,
         kind="big_picture",
-        params=SuggestionParams(openai_api_key=openai_api_key, request_more=False),
+        params=SuggestionParams(request_more=False),
     )
     return to_job_dto(record, manager.live_job_ids())
-
-
-async def create_stream_ticket(
-    graph_id: UUID,
-    graph_repo: Annotated[GraphDataRepository, Depends(get_graph_repo)],
-    user: Annotated[User, Depends(auth_app.require_auth)],
-) -> StreamTicketDTO:
-    """
-    Hand out the credential the browser will put in the stream URL.
-
-    Identity and ownership are established here, on an ordinary authenticated
-    request whose token travels in a header. What goes into the URL — and from
-    there into every access log — is only this ticket: one case, half a minute,
-    no access to anything else.
-    """
-    await _require_graph(graph_repo, user.email, str(graph_id))
-    return StreamTicketDTO(ticket=auth_service.create_stream_ticket(user, str(graph_id)))
 
 
 async def stream(websocket: WebSocket):
@@ -177,15 +148,8 @@ async def stream(websocket: WebSocket):
     # Accept before closing with an application code: a close before accept is
     # an HTTP handshake rejection and the browser only ever sees code 1006.
     graph_id = websocket.path_params["graph_id"]
-    try:
-        user = auth_service.verify_stream_ticket(websocket.query_params.get("ticket"), graph_id)
-    except auth_service.InvalidTokenError:
-        await websocket.accept()
-        await websocket.close(code=4001, reason="Unauthorized")
-        return
-
     repo = GraphDataRepository(get_db())
-    if not await repo.exists(user.email, graph_id):
+    if not await repo.exists(current_user().email, graph_id):
         await websocket.accept()
         await websocket.close(code=4004, reason="Not found")
         return

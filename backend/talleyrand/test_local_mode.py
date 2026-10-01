@@ -1,6 +1,6 @@
 """
-Local mode replaces sign-in with one fixed user, so everything that kept
-strangers out now has to come from the request itself:
+There is no sign-in, only the operator, so everything that keeps strangers out
+has to come from the request itself:
 
 - the peer must be this machine: a remote client is refused whatever Host it
   claims, however the server happens to be bound;
@@ -13,12 +13,17 @@ strangers out now has to come from the request itself:
   write to their cases.
 """
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from typing import Annotated
 
-from talleyrand.core.config import LOCAL_FRONTEND_ORIGIN
-from talleyrand.features.auth_jwt.router import router as auth_jwt_router
-from talleyrand.main import apply_local_mode
+import pytest
+from fastapi import Depends, FastAPI, WebSocket
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
+
+from talleyrand.core.config import LOCAL_FRONTEND_ORIGIN, settings
+from talleyrand.infra.local_user import current_user
+from talleyrand.main import apply_local_boundary
+from talleyrand.models.user import User
 
 LOOPBACK = ("127.0.0.1", 50000)
 FRONTEND = LOCAL_FRONTEND_ORIGIN
@@ -26,13 +31,22 @@ FRONTEND = LOCAL_FRONTEND_ORIGIN
 
 def _local_app() -> FastAPI:
     app = FastAPI()
-    app.include_router(auth_jwt_router)
+
+    @app.get("/me")
+    async def me(user: Annotated[User, Depends(current_user)]) -> User:
+        return user
 
     @app.post("/act")
     async def act() -> dict:
         return {"acted": True}
 
-    apply_local_mode(app, email="me@example.com")
+    @app.websocket("/stream")
+    async def stream(websocket: WebSocket) -> None:
+        await websocket.accept()
+        await websocket.send_text("events")
+        await websocket.close()
+
+    apply_local_boundary(app)
     return app
 
 
@@ -40,27 +54,27 @@ def _client(base_url: str = "http://localhost:8000", peer: tuple = LOOPBACK) -> 
     return TestClient(_local_app(), base_url=base_url, client=peer)
 
 
-def test_the_local_user_is_signed_in_without_a_token():
-    response = _client().get("/auth/me")
+def test_every_request_is_the_operator_without_a_token():
+    response = _client().get("/me")
     assert response.status_code == 200
-    assert response.json()["email"] == "me@example.com"
+    assert response.json()["email"] == settings.local_user_email
 
 
 def test_loopback_by_ip_is_accepted():
-    assert _client("http://127.0.0.1:8000").get("/auth/me").status_code == 200
+    assert _client("http://127.0.0.1:8000").get("/me").status_code == 200
 
 
 def test_ipv6_loopback_peer_is_accepted():
-    assert _client(peer=("::1", 50000)).get("/auth/me").status_code == 200
+    assert _client(peer=("::1", 50000)).get("/me").status_code == 200
 
 
 def test_a_request_for_any_other_host_is_refused():
-    assert _client("http://attacker.example").get("/auth/me").status_code == 400
+    assert _client("http://attacker.example").get("/me").status_code == 400
 
 
 def test_a_remote_peer_is_refused_even_when_it_claims_to_be_localhost():
     client = _client(peer=("192.168.1.99", 50000))
-    assert client.get("/auth/me").status_code == 403
+    assert client.get("/me").status_code == 403
     assert client.post("/act").status_code == 403
 
 
@@ -83,6 +97,27 @@ def test_a_post_with_no_origin_is_accepted():
 
 def test_a_cross_site_read_is_left_to_cors():
     # A GET changes nothing, and CORS already keeps its response from the page.
-    response = _client().get("/auth/me", headers={"Origin": "https://evil.example"})
+    response = _client().get("/me", headers={"Origin": "https://evil.example"})
     assert response.status_code == 200
     assert "access-control-allow-origin" not in response.headers
+
+
+def test_a_cross_site_websocket_is_refused():
+    # The job stream has no credential of its own: the Origin check is what
+    # keeps another site's page from reading a case's answers as they arrive.
+    client = _client()
+    with (
+        pytest.raises(WebSocketDisconnect) as refused,
+        client.websocket_connect(
+            "ws://localhost:8000/stream", headers={"Origin": "https://evil.example"}
+        ),
+    ):
+        pass
+    assert refused.value.code == 1008
+
+
+def test_the_local_frontends_websocket_is_accepted():
+    with _client().websocket_connect(
+        "ws://localhost:8000/stream", headers={"Origin": FRONTEND}
+    ) as websocket:
+        assert websocket.receive_text() == "events"
