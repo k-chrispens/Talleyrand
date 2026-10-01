@@ -55,10 +55,6 @@ export interface GraphMetadata {
   nodeCount: number;
   edgeCount: number;
   createdAt?: string;
-  /** True while anyone holding the case's link can read it. */
-  shared: boolean;
-  /** Names of the case files a share link hands out along with the case. */
-  documentNames: string[];
 }
 
 export type DeclineReason = 'know_this' | 'too_basic' | 'off_topic' | 'unclear';
