@@ -35,13 +35,13 @@ esac
 if command -v pdm >/dev/null; then
   PDM="pdm"
 elif command -v uvx >/dev/null; then
-  PDM="uvx pdm@2.29.0" # the version dev.Dockerfile pins
+  PDM="uvx pdm@2.29.0" # pinned, so every machine reads pdm.lock the same way
 else
   die "Neither pdm nor uv is installed."
 fi
 for port in 8000 3000; do
   if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
-    die "Port $port is already in use. A docker compose backend? Stop it with: docker compose down"
+    die "Port $port is already in use. Is another Talleyrand session running?"
   fi
 done
 if [ "$AGENT_BACKEND" = claude_code ]; then
@@ -63,7 +63,6 @@ fi
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL OPENAI_API_KEY
 
 # --- MongoDB -----------------------------------------------------------------
-# Never a bare `docker compose up`: that also starts the containerized backend.
 docker compose up -d mongodb >/dev/null
 echo "start-local: waiting for MongoDB..."
 # A port check, not `docker compose exec`: exec refuses to run without
@@ -102,14 +101,14 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 trap 'exit 129' HUP
 
-# Loopback only: local mode has no sign-in, so the network is the boundary.
+# Loopback only: there is no sign-in, so the network is the boundary.
 (
   cd backend
   # A closed terminal sends HUP to everything in it, and uvicorn dies on HUP
   # without shutting down, orphaning any agent run in flight. Ignoring it
   # leaves the stop to cleanup, whose TERM gets the orderly shutdown.
   trap '' HUP
-  export LOCAL_MODE=true AGENT_BACKEND COOKIE_SECURE=false
+  export AGENT_BACKEND
   export MONGODB_URL=mongodb://admin:admin@localhost:27017
   exec .venv/bin/uvicorn talleyrand.main:app --host 127.0.0.1 --port 8000 \
     --timeout-graceful-shutdown 10
