@@ -9,9 +9,9 @@ is the one-shot structured-output call (OpenAI) used by kickstart, the
 suggesters, reports, and auto-naming.
 
 In a local session both can run on the operator's own signed-in agent CLI
-instead (core/claude_code.py, core/hermes.py): answers for questions set to the
-"claude-code" or "hermes" preset, and every structured call, whatever model its
-feature names, on settings.agent_backend.
+instead (core/claude_code.py, core/hermes.py): answers for questions set to a
+Claude Code or Hermes preset, on the model the preset names, and every
+structured call, whatever model its feature names, on settings.agent_backend.
 """
 
 import asyncio
@@ -508,6 +508,7 @@ async def stream_text(
         return await _stream_agent(
             caller=caller,
             provider=model.provider,
+            agent_model=model.agent_model,
             instructions=instructions,
             cached_prefix=cached_prefix,
             user_prompt=user_prompt,
@@ -545,6 +546,7 @@ async def _stream_agent(
     *,
     caller: str,
     provider: Provider,
+    agent_model: str | None,
     instructions: str,
     cached_prefix: str,
     user_prompt: str,
@@ -592,11 +594,11 @@ async def _stream_agent(
         )
 
     if provider == "hermes":
-        answer = await hermes.run(system_prompt=instructions, prompt=prompt)
         # Hermes runs the model it is given; its output does not name one.
-        model = settings.hermes_model
+        model = agent_model or settings.hermes_model
+        answer = await hermes.run(system_prompt=instructions, prompt=prompt, model=model)
     else:
-        result = await claude_code.run(system_prompt=instructions, prompt=prompt)
+        result = await claude_code.run(system_prompt=instructions, prompt=prompt, model=agent_model)
         answer = str(result.get("result") or "")
         model = result.get("model")
     log_response(caller, answer)

@@ -231,7 +231,7 @@ async def test_a_second_bad_reply_is_an_error_not_a_third_call(fake_hermes, no_o
 async def test_an_answer_runs_on_hermes_and_says_what_it_could_not_use(fake_hermes, no_openai):
     stream = await stream_text(
         caller="test",
-        model=get_model_config("hermes"),
+        model=get_model_config("hermes-gpt-6-1-sol"),
         api_key="",
         instructions="Answer.",
         cached_prefix="BRIEF ",
@@ -241,11 +241,14 @@ async def test_an_answer_runs_on_hermes_and_says_what_it_could_not_use(fake_herm
         verbosity="low",
     )
     execution, answer = [chunk async for chunk in stream]
-    assert (execution.provider, execution.model) == ("hermes", settings.hermes_model)
+    # The preset's model, not settings.hermes_model (the agent's own work).
+    assert (execution.provider, execution.model) == ("hermes", "gpt-6.1-sol")
+    args = fake_hermes.calls[-1]["args"]
+    assert args[args.index("--model") + 1] == "gpt-6.1-sol"
     assert execution.notes[0].startswith("Web search did not run (it needs a Kagi API key")
     assert answer == TextChunk("echo:BRIEF QUESTION")
     assert fake_hermes.calls[0]["system"].startswith("Answer.")
 
 
 def test_hermes_needs_no_api_key(fake_hermes):
-    assert llm.resolve_api_key(get_model_config("hermes"), "", "") == ""
+    assert llm.resolve_api_key(get_model_config("hermes-gpt-6-astra"), "", "") == ""

@@ -1,6 +1,7 @@
 import { FC, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  AGENT_PROVIDERS,
   isProviderAvailable,
   MODELS,
   PROVIDER_LABELS,
@@ -21,9 +22,11 @@ interface ModelPickerProps {
 }
 
 /**
- * Compact model picker: a provider toggle (GPT / Claude) plus a thinking
- * slider that walks the provider's ladder from fastest model to deepest
- * reasoning. The model name shows in a tooltip while hovering or dragging.
+ * Compact model picker: a provider toggle plus, for the API providers (GPT /
+ * Claude), a thinking slider that walks the provider's ladder from fastest
+ * model to deepest reasoning, the model name in a tooltip while hovering or
+ * dragging. The agent CLIs (Claude Code / Hermes) list their models in a
+ * dropdown instead.
  */
 export const ModelPicker: FC<ModelPickerProps> = ({
   selectedModel,
@@ -124,45 +127,61 @@ export const ModelPicker: FC<ModelPickerProps> = ({
           </button>
         ))}
       </div>
-      <div
-        className="relative flex w-32 items-center py-1"
-        onPointerEnter={() => setHovering(true)}
-        onPointerLeave={() => setHovering(false)}
-      >
-        {showTooltip &&
-          tooltipPos &&
-          createPortal(
-            <div
-              className="pointer-events-none fixed z-[100] -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md bg-stone-800 px-2 py-0.5 text-[10px] text-stone-50 shadow-lg"
-              style={{ left: tooltipPos.left, top: tooltipPos.top }}
-            >
-              {sliderModel.label}
-            </div>,
-            document.body
-          )}
-        <div className="pointer-events-none absolute inset-0">
-          {ladder.map((m, i) => (
-            <span
-              key={m.id}
-              className="absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-stone-300"
-              style={{ left: thumbCenter(steps > 1 ? i / (steps - 1) : 0.5) }}
-            />
+      {AGENT_PROVIDERS.includes(provider) ? (
+        <select
+          value={sliderModel.id}
+          disabled={disabled}
+          onChange={e => onModelChange(e.target.value as ModelType)}
+          className="rounded-md border border-stone-300 bg-white px-2 py-1 text-[11px] font-medium text-stone-700 shadow-sm disabled:cursor-not-allowed"
+          aria-label={`${PROVIDER_LABELS[provider]} model`}
+        >
+          {ladder.map(m => (
+            <option key={m.id} value={m.id} title={m.description}>
+              {m.label}
+            </option>
           ))}
+        </select>
+      ) : (
+        <div
+          className="relative flex w-32 items-center py-1"
+          onPointerEnter={() => setHovering(true)}
+          onPointerLeave={() => setHovering(false)}
+        >
+          {showTooltip &&
+            tooltipPos &&
+            createPortal(
+              <div
+                className="pointer-events-none fixed z-[100] -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md bg-stone-800 px-2 py-0.5 text-[10px] text-stone-50 shadow-lg"
+                style={{ left: tooltipPos.left, top: tooltipPos.top }}
+              >
+                {sliderModel.label}
+              </div>,
+              document.body
+            )}
+          <div className="pointer-events-none absolute inset-0">
+            {ladder.map((m, i) => (
+              <span
+                key={m.id}
+                className="absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-stone-300"
+                style={{ left: thumbCenter(steps > 1 ? i / (steps - 1) : 0.5) }}
+              />
+            ))}
+          </div>
+          <input
+            ref={sliderRef}
+            type="range"
+            min={0}
+            max={steps - 1}
+            step={1}
+            value={sliderIndex}
+            disabled={disabled || steps <= 1}
+            onChange={e => onModelChange(ladder[Number(e.target.value)].id)}
+            onPointerDown={() => setDragging(true)}
+            className="thinking-slider relative"
+            aria-label="Thinking depth — left is faster, right reasons deeper"
+          />
         </div>
-        <input
-          ref={sliderRef}
-          type="range"
-          min={0}
-          max={steps - 1}
-          step={1}
-          value={sliderIndex}
-          disabled={disabled || steps <= 1}
-          onChange={e => onModelChange(ladder[Number(e.target.value)].id)}
-          onPointerDown={() => setDragging(true)}
-          className="thinking-slider relative"
-          aria-label="Thinking depth — left is faster, right reasons deeper"
-        />
-      </div>
+      )}
     </div>
   );
 };

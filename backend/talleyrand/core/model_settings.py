@@ -14,8 +14,14 @@ type SupportedModel = Literal[
     "claude-fable-5-1-medium",
     "claude-fable-5-1-high",
     "claude-fable-5-1-max",
-    "claude-code",
-    "hermes",
+    "claude-code-haiku-4-5",
+    "claude-code-sonnet-5-5",
+    "claude-code-opus-5-5",
+    "claude-code-fable-5-1",
+    "hermes-gpt-6-luna",
+    "hermes-gpt-6-sol",
+    "hermes-gpt-6-1-sol",
+    "hermes-gpt-6-astra",
 ]
 
 type Provider = Literal["openai", "anthropic", "claude_code", "hermes"]
@@ -177,6 +183,8 @@ class ModelConfig:
         plain_prose: Whether to tell the model to prefer a literal phrase over metaphor
             and flourish. Set for models whose answers otherwise read as mannered; the
             instruction itself lives in core/llm.py.
+        agent_model: For an agent CLI preset, the model its answers ask the CLI for
+            (`--model`). The CLI's own window still applies (api_model).
     """
 
     id: SupportedModel
@@ -187,6 +195,7 @@ class ModelConfig:
     reasoning_effort: ReasoningEffort | None
     refusal_fallback: bool = False
     plain_prose: bool = False
+    agent_model: str | None = None
 
     @property
     def window(self) -> ModelWindow:
@@ -288,22 +297,81 @@ MODEL_CONFIGS: dict[SupportedModel, ModelConfig] = {
         refusal_fallback=True,
         plain_prose=True,
     ),
-    # The agent CLIs, only usable in a local session (settings.local_mode).
-    "claude-code": ModelConfig(
-        id="claude-code",
+    # The agent CLIs, only usable in a local session (settings.local_mode), one
+    # preset per model the signed-in subscription offers, fastest first. Model
+    # names checked 2026-09-30 against the Claude Code changelog and the live
+    # openai-codex list Hermes fetches (`hermes model`).
+    "claude-code-haiku-4-5": ModelConfig(
+        id="claude-code-haiku-4-5",
         api_model="claude-code",
-        label="Claude Code",
-        description="Your Claude subscription, no web search yet",
+        label="Claude Haiku 4.5",
+        description="Fastest Claude, on your Claude subscription",
         order=11,
         reasoning_effort=None,
+        agent_model="claude-haiku-4-5",
     ),
-    "hermes": ModelConfig(
-        id="hermes",
-        api_model="hermes",
-        label="Hermes",
-        description="Your ChatGPT subscription via Hermes, no web search yet",
+    "claude-code-sonnet-5-5": ModelConfig(
+        id="claude-code-sonnet-5-5",
+        api_model="claude-code",
+        label="Claude Sonnet 5.5",
+        description="Balanced Claude, on your Claude subscription",
         order=12,
         reasoning_effort=None,
+        agent_model="claude-sonnet-5-5",
+    ),
+    "claude-code-opus-5-5": ModelConfig(
+        id="claude-code-opus-5-5",
+        api_model="claude-code",
+        label="Claude Opus 5.5",
+        description="Strongest Opus, on your Claude subscription",
+        order=13,
+        reasoning_effort=None,
+        agent_model="claude-opus-5-5",
+    ),
+    "claude-code-fable-5-1": ModelConfig(
+        id="claude-code-fable-5-1",
+        api_model="claude-code",
+        label="Claude Fable 5.1",
+        description="Most capable Claude, on your Claude subscription",
+        order=14,
+        reasoning_effort=None,
+        agent_model="claude-fable-5-1",
+    ),
+    "hermes-gpt-6-luna": ModelConfig(
+        id="hermes-gpt-6-luna",
+        api_model="hermes",
+        label="GPT-6 Luna",
+        description="Fastest GPT, on your ChatGPT subscription",
+        order=15,
+        reasoning_effort=None,
+        agent_model="gpt-6-luna",
+    ),
+    "hermes-gpt-6-sol": ModelConfig(
+        id="hermes-gpt-6-sol",
+        api_model="hermes",
+        label="GPT-6 Sol",
+        description="Balanced GPT, on your ChatGPT subscription",
+        order=16,
+        reasoning_effort=None,
+        agent_model="gpt-6-sol",
+    ),
+    "hermes-gpt-6-1-sol": ModelConfig(
+        id="hermes-gpt-6-1-sol",
+        api_model="hermes",
+        label="GPT-6.1 Sol",
+        description="Newest Sol, on your ChatGPT subscription",
+        order=17,
+        reasoning_effort=None,
+        agent_model="gpt-6.1-sol",
+    ),
+    "hermes-gpt-6-astra": ModelConfig(
+        id="hermes-gpt-6-astra",
+        api_model="hermes",
+        label="GPT-6 Astra",
+        description="Most capable GPT, on your ChatGPT subscription",
+        order=18,
+        reasoning_effort=None,
+        agent_model="gpt-6-astra",
     ),
 }
 
@@ -342,6 +410,11 @@ RETIRED_MODELS: dict[str, SupportedModel] = {
     "claude-opus-5-medium": "claude-fable-5-1-medium",
     "claude-opus-5-high": "claude-fable-5-1-high",
     "claude-opus-5-max": "claude-fable-5-1-max",
+    # Retired 2026-09-30: one preset per agent became one per model it can run.
+    # Each ran settings.claude_code_model / settings.hermes_model, by default
+    # these two.
+    "claude-code": "claude-code-sonnet-5-5",
+    "hermes": "hermes-gpt-6-astra",
 }
 
 

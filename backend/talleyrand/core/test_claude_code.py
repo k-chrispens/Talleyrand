@@ -352,7 +352,7 @@ async def test_structured_calls_with_pdfs_say_so_instead_of_dropping_them(fake_c
 async def _answer(**overrides) -> list[str]:
     kwargs = {
         "caller": "test",
-        "model": get_model_config("claude-code"),
+        "model": get_model_config("claude-code-sonnet-5-5"),
         "api_key": "",
         "instructions": "Answer.",
         "cached_prefix": "BRIEF ",
@@ -370,13 +370,15 @@ async def test_an_answer_is_the_whole_prompt_answered_once(fake_claude, no_opena
     assert await _answer() == ["echo:BRIEF QUESTION"]
     args = fake_claude.last_call["args"]
     assert args[args.index("--system-prompt") + 1].startswith("Answer.")
+    # The preset's model, not settings.claude_code_model (the agent's own work).
+    assert args[args.index("--model") + 1] == "claude-sonnet-5-5"
 
 
 @pytest.mark.asyncio
 async def test_an_answer_reports_its_model_and_what_it_could_not_use(fake_claude, no_openai):
     stream = await stream_text(
         caller="test",
-        model=get_model_config("claude-code"),
+        model=get_model_config("claude-code-sonnet-5-5"),
         api_key="",
         instructions="Answer.",
         cached_prefix="BRIEF ",
@@ -396,4 +398,4 @@ async def test_an_answer_reports_its_model_and_what_it_could_not_use(fake_claude
 
 
 def test_claude_code_needs_no_api_key(fake_claude):
-    assert llm.resolve_api_key(get_model_config("claude-code"), "", "") == ""
+    assert llm.resolve_api_key(get_model_config("claude-code-sonnet-5-5"), "", "") == ""

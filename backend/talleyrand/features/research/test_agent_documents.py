@@ -54,7 +54,7 @@ def sent(monkeypatch):
 async def test_an_agent_answer_reads_the_pdf_text_as_a_document(sent):
     treaty = _pdf_doc("treaty", _text_pdf("Signed at Vienna"))
 
-    await query_service.do_research_query(NODE, _graph("claude-code", [treaty]), "", "")
+    await query_service.do_research_query(NODE, _graph("claude-code-sonnet-5-5", [treaty]), "", "")
 
     assert "- treaty.pdf: Signed at Vienna" in sent["cached_prefix"]
     assert sent["pdf_documents"] == []
@@ -64,7 +64,7 @@ async def test_an_agent_answer_reads_the_pdf_text_as_a_document(sent):
 async def test_an_unreadable_pdf_is_left_for_the_answer_to_mention(sent):
     scan = _pdf_doc("scan", _blank_pdf())
 
-    await query_service.do_research_query(NODE, _graph("hermes", [scan]), "", "")
+    await query_service.do_research_query(NODE, _graph("hermes-gpt-6-astra", [scan]), "", "")
 
     assert [doc.filename for doc in sent["pdf_documents"]] == ["scan.pdf"]
 
@@ -92,6 +92,7 @@ async def test_the_answer_names_the_pdfs_it_could_not_read(monkeypatch):
     stream = await llm._stream_agent(
         caller="test",
         provider="claude_code",
+        agent_model="claude-sonnet-5-5",
         instructions="",
         cached_prefix="",
         user_prompt="",
