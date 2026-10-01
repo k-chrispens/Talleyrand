@@ -86,6 +86,7 @@ async def test_the_answer_names_the_pdfs_it_could_not_read(monkeypatch):
         user_prompt="",
         pdf_documents=[scan],
         web_search_enabled=False,
+        search_provider="kagi",
         verbosity="low",
     )
     execution, answer = [chunk async for chunk in stream]

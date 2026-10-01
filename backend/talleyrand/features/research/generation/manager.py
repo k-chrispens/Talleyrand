@@ -29,6 +29,7 @@ from talleyrand.core.llm import (
     WebSourceCollector,
     provider_error_detail,
 )
+from talleyrand.core.web_search import SearchProvider
 from talleyrand.features.graph.dtos import ExecutionDTO, GraphNoId, WebSourceDTO
 from talleyrand.features.graph.models import DocumentLoad, GraphDataRepository, GraphDocument
 from talleyrand.features.research.big_picture import (
@@ -75,6 +76,7 @@ STREAM_STALLED_ERROR = "The model stopped responding. Please retry."
 @dataclass
 class AnswerParams:
     web_search_enabled: bool
+    search_provider: SearchProvider
     verbosity: Literal["low", "medium"]
     # "Summarize parents": condense the thread above this question into a cheat
     # sheet alongside the answer. Runs as its own job, in parallel with the
@@ -381,6 +383,7 @@ class GenerationJobManager:
                 node_id=node_id,
                 graph=graph,
                 web_search_enabled=params.web_search_enabled,
+                search_provider=params.search_provider,
                 verbosity=params.verbosity,
             )
             # The request is on its way and nothing below reads the case

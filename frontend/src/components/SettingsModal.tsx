@@ -4,6 +4,7 @@ import { type ModelType, MODELS, resolveModelId } from '../config/models';
 import { ModelPicker } from './ui/ModelPicker';
 import { useResearchStore } from '../stores/researchStore';
 import { iconTooltip } from './ui/TooltipLayer';
+import { getSearchProvider, type SearchProvider } from '../client';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -78,6 +79,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose, onSave 
   const [webSearchEnabled, setWebSearchEnabled] = useState(
     () => localStorage.getItem('web_search_enabled') !== 'false'
   );
+  const [searchProvider, setSearchProvider] = useState<SearchProvider>(getSearchProvider);
   const [verbosity, setVerbosity] = useState<'low' | 'normal'>(
     () => (localStorage.getItem('verbosity') as 'low' | 'normal') || 'low'
   );
@@ -99,6 +101,7 @@ export const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose, onSave 
   const handleSave = () => {
     useResearchStore.getState().setDefaultModel(defaultModel);
     localStorage.setItem('web_search_enabled', webSearchEnabled.toString());
+    localStorage.setItem('search_provider', searchProvider);
     localStorage.setItem('verbosity', verbosity);
     useResearchStore.getState().setSummarizeParents(summarizeParents);
 
@@ -167,6 +170,31 @@ export const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose, onSave 
                 onChange={setWebSearchEnabled}
                 label="Enable web search"
               />
+              {webSearchEnabled && (
+                <div className="flex items-start justify-between gap-4">
+                  <label htmlFor="searchProvider" className="min-w-0">
+                    <span className="font-serif text-[13.5px] leading-snug text-stone-800">
+                      Search with
+                    </span>
+                    <span className="mt-0.5 block font-serif text-[12px] leading-snug text-stone-500">
+                      Needs that service&apos;s key in backend/.env: KAGI_API_KEY or
+                      MIXEDBREAD_API_KEY.
+                    </span>
+                  </label>
+                  <div className="relative flex-shrink-0">
+                    <select
+                      id="searchProvider"
+                      value={searchProvider}
+                      onChange={e => setSearchProvider(e.target.value as SearchProvider)}
+                      className="cursor-pointer appearance-none rounded-lg border border-stone-300 bg-white py-1.5 pl-3 pr-8 font-serif text-[13px] text-stone-800 transition-all focus:border-stone-500 focus:shadow-[0_2px_12px_rgba(28,25,23,0.07)] focus:outline-none"
+                    >
+                      <option value="kagi">Kagi</option>
+                      <option value="mixedbread">Mixedbread</option>
+                    </select>
+                    <SelectChevron />
+                  </div>
+                </div>
+              )}
               <ToggleRow
                 id="summarizeParents"
                 checked={summarizeParents}

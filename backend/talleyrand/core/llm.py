@@ -18,7 +18,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from talleyrand.core import claude_code, hermes, kagi
+from talleyrand.core import claude_code, hermes, web_search
 from talleyrand.core.agent_cli import AgentError
 from talleyrand.core.config import settings
 from talleyrand.core.llm_logging import log_response, log_structured_response
@@ -193,7 +193,7 @@ type StreamChunk = TextChunk | SourceChunk | ExecutionChunk
 # list never under-reports how wide the model actually cast its net.
 MAX_WEB_SOURCES = 60
 
-# Queries an agent answer's web search may run (each billed by Kagi).
+# Queries an agent answer's web search may run (each billed by the search provider).
 MAX_SEARCH_QUERIES = 3
 
 
@@ -330,6 +330,7 @@ async def stream_text(
     user_prompt: str,
     pdf_documents: list[PdfAttachment],
     web_search_enabled: bool,
+    search_provider: web_search.SearchProvider,
     verbosity: Literal["low", "medium"],
 ) -> AsyncGenerator[StreamChunk, None]:
     """
@@ -352,6 +353,7 @@ async def stream_text(
         user_prompt=user_prompt,
         pdf_documents=pdf_documents,
         web_search_enabled=web_search_enabled,
+        search_provider=search_provider,
         verbosity=verbosity,
     )
 
@@ -366,6 +368,7 @@ async def _stream_agent(
     user_prompt: str,
     pdf_documents: list[PdfAttachment],
     web_search_enabled: bool,
+    search_provider: web_search.SearchProvider,
     verbosity: Literal["low", "medium"],
 ) -> AsyncGenerator[StreamChunk, None]:
     """
@@ -388,11 +391,11 @@ async def _stream_agent(
     prompt = cached_prefix + user_prompt
 
     notes = []
-    results: list[kagi.SearchResult] = []
+    results: list[web_search.SearchResult] = []
     if web_search_enabled:
         try:
-            results = await _search_the_web(provider, user_prompt)
-        except (kagi.KagiError, StructuredGenerationError) as e:
+            results = await _search_the_web(provider, search_provider, user_prompt)
+        except (web_search.SearchError, StructuredGenerationError) as e:
             notes.append(
                 f"Web search did not run ({e}), so this answer draws on the model's own knowledge."
             )
@@ -439,14 +442,19 @@ CURRENT QUESTION. Each must stand alone: spell out what the case refers to, sinc
 engine sees only the query."""
 
 
-async def _search_the_web(provider: Provider, case_body: str) -> list[kagi.SearchResult]:
+async def _search_the_web(
+    provider: Provider, search_provider: web_search.SearchProvider, case_body: str
+) -> list[web_search.SearchResult]:
     """
     Search results for the question that ends case_body: the agent writes the
-    queries (one small structured call), Kagi runs them.
+    queries (one small structured call), the search provider runs them.
     """
-    if not settings.kagi_api_key:
+    label = web_search.LABELS[search_provider]
+    if not web_search.api_key(search_provider):
         # Checked first, so a missing key does not spend a query-writing call.
-        raise kagi.KagiError("it needs a Kagi API key, KAGI_API_KEY in backend/.env")
+        raise web_search.SearchError(
+            f"it needs a {label} API key, {search_provider.upper()}_API_KEY in backend/.env"
+        )
     # ponytail: queries come from the tree and question alone, not the brief and
     # documents, to keep this call small.
     planned = await _parse_structured_agent(
@@ -459,12 +467,12 @@ async def _search_the_web(provider: Provider, case_body: str) -> list[kagi.Searc
     queries = [q.strip() for q in planned.queries if q.strip()][:MAX_SEARCH_QUERIES]
     if not queries:
         return []
-    results = await kagi.search(queries)
-    logger.info(f"Kagi: {len(queries)} queries, {len(results)} results")
+    results = await web_search.search(search_provider, queries)
+    logger.info(f"{label}: {len(queries)} queries, {len(results)} results")
     return results
 
 
-def _search_results_section(results: list[kagi.SearchResult]) -> str:
+def _search_results_section(results: list[web_search.SearchResult]) -> str:
     if not results:
         return ""
     lines = [

@@ -317,6 +317,7 @@ async def _answer(**overrides) -> list[str]:
         "user_prompt": "QUESTION",
         "pdf_documents": [],
         "web_search_enabled": False,
+        "search_provider": "kagi",
         "verbosity": "low",
     } | overrides
     stream = await stream_text(**kwargs)
@@ -342,6 +343,7 @@ async def test_an_answer_reports_its_model_and_what_it_could_not_use(fake_claude
         user_prompt="QUESTION",
         pdf_documents=[PdfAttachment(filename="paper.pdf", data_uri="data:,")],
         web_search_enabled=True,
+        search_provider="kagi",
         verbosity="low",
     )
     execution, answer = [chunk async for chunk in stream]

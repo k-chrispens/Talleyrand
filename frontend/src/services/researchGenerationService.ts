@@ -1,6 +1,7 @@
 import type { components } from '../api/schema';
 import {
   client,
+  getSearchProvider,
   getVerbosity,
   jobStreamUrl,
   isParentSummaryEnabled,
@@ -224,6 +225,7 @@ class ResearchGenerationService {
           background,
           force,
           webSearchEnabled: isWebSearchEnabled(),
+          searchProvider: getSearchProvider(),
           verbosity: getVerbosity(),
           cheatSheet: isParentSummaryEnabled(),
         },
