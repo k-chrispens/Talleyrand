@@ -49,8 +49,11 @@ class HermesError(AgentError):
     setup_hint = "Install Hermes and sign in to your provider with `hermes setup`."
 
 
-async def run(*, system_prompt: str, prompt: str) -> str:
-    """Run one `hermes chat` call and return the final answer text."""
+async def run(*, system_prompt: str, prompt: str, model: str | None = None) -> str:
+    """
+    Run one `hermes chat` call on model (default settings.hermes_model) and
+    return the final answer text.
+    """
     args = [
         settings.hermes_executable,
         "chat",
@@ -64,7 +67,7 @@ async def run(*, system_prompt: str, prompt: str) -> str:
         "--provider",
         settings.hermes_provider,
         "--model",
-        settings.hermes_model,
+        model or settings.hermes_model,
         "--source",
         "tool",
         "--max-turns",

@@ -89,19 +89,62 @@ export const MODELS = [
     description: 'Deepest reasoning (max)',
     inputTokens: 936000,
   },
-  // The agent CLIs, only offered in a local session (AGENT_BACKEND); see ModelPicker.
+  // The agent CLIs, the only models offered in a local session (AGENT_BACKEND);
+  // the picker shows each agent's models in a dropdown. See ModelPicker.
   {
-    id: 'claude-code',
+    id: 'claude-code-haiku-4-5',
     provider: 'claude_code',
-    label: 'Claude Code',
-    description: 'Your Claude subscription, no web search yet',
+    label: 'Claude Haiku 4.5',
+    description: 'Fastest Claude, on your Claude subscription',
     inputTokens: 150000,
   },
   {
-    id: 'hermes',
+    id: 'claude-code-sonnet-5-5',
+    provider: 'claude_code',
+    label: 'Claude Sonnet 5.5',
+    description: 'Balanced Claude, on your Claude subscription',
+    inputTokens: 150000,
+  },
+  {
+    id: 'claude-code-opus-5-5',
+    provider: 'claude_code',
+    label: 'Claude Opus 5.5',
+    description: 'Strongest Opus, on your Claude subscription',
+    inputTokens: 150000,
+  },
+  {
+    id: 'claude-code-fable-5-1',
+    provider: 'claude_code',
+    label: 'Claude Fable 5.1',
+    description: 'Most capable Claude, on your Claude subscription',
+    inputTokens: 150000,
+  },
+  {
+    id: 'hermes-gpt-6-luna',
     provider: 'hermes',
-    label: 'Hermes',
-    description: 'Your ChatGPT subscription via Hermes, no web search yet',
+    label: 'GPT-6 Luna',
+    description: 'Fastest GPT, on your ChatGPT subscription',
+    inputTokens: 150000,
+  },
+  {
+    id: 'hermes-gpt-6-sol',
+    provider: 'hermes',
+    label: 'GPT-6 Sol',
+    description: 'Balanced GPT, on your ChatGPT subscription',
+    inputTokens: 150000,
+  },
+  {
+    id: 'hermes-gpt-6-1-sol',
+    provider: 'hermes',
+    label: 'GPT-6.1 Sol',
+    description: 'Newest Sol, on your ChatGPT subscription',
+    inputTokens: 150000,
+  },
+  {
+    id: 'hermes-gpt-6-astra',
+    provider: 'hermes',
+    label: 'GPT-6 Astra',
+    description: 'Most capable GPT, on your ChatGPT subscription',
     inputTokens: 150000,
   },
 ] as const satisfies readonly {
@@ -116,7 +159,11 @@ export type ModelType = (typeof MODELS)[number]['id'];
 
 // A local session defaults to the agent that runs its other work.
 export const DEFAULT_MODEL: ModelType =
-  AGENT_BACKEND === 'hermes' ? 'hermes' : AGENT_BACKEND ? 'claude-code' : 'gpt-6-astra-medium';
+  AGENT_BACKEND === 'hermes'
+    ? 'hermes-gpt-6-astra'
+    : AGENT_BACKEND
+      ? 'claude-code-sonnet-5-5'
+      : 'gpt-6-astra-medium';
 
 // Presets we have removed, each pointing at its closest current replacement.
 // Mirrors RETIRED_MODELS in the backend's model_settings.py, plus the label the
@@ -151,12 +198,18 @@ export const RETIRED_MODELS: Record<string, { label: string; replacedBy: ModelTy
   'claude-opus-5-medium': { label: 'Claude Opus 5 medium', replacedBy: 'claude-fable-5-1-medium' },
   'claude-opus-5-high': { label: 'Claude Opus 5 high', replacedBy: 'claude-fable-5-1-high' },
   'claude-opus-5-max': { label: 'Claude Opus 5 max', replacedBy: 'claude-fable-5-1-max' },
+  // Retired 2026-09-30: one preset per agent became one per model it can run
+  'claude-code': { label: 'Claude Code', replacedBy: 'claude-code-sonnet-5-5' },
+  hermes: { label: 'Hermes', replacedBy: 'hermes-gpt-6-astra' },
 };
 
 /** Current preset for a stored id, translating retired ids to their replacements. */
-/** Whether this build can run a provider's models: the agent CLIs only in a local session. */
+/**
+ * Whether this build offers a provider's models: a local session only the agent
+ * CLIs (the operator's subscriptions), any other build only the API providers.
+ */
 export const isProviderAvailable = (provider: ModelProvider): boolean =>
-  !!AGENT_BACKEND || !AGENT_PROVIDERS.includes(provider);
+  AGENT_PROVIDERS.includes(provider) === !!AGENT_BACKEND;
 
 export function resolveModelId(modelId: string | undefined | null): ModelType {
   if (!modelId) return DEFAULT_MODEL;

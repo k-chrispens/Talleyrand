@@ -68,7 +68,7 @@ def agent(monkeypatch):
         calls["query_prompt"] = kwargs["user_content"]
         return llm.SearchQueries(queries=["congress of vienna", ""])
 
-    async def fake_run(*, system_prompt, prompt, json_schema=None):
+    async def fake_run(*, system_prompt, prompt, json_schema=None, model=None):
         calls["prompts"].append(prompt)
         return {"result": f"It held ([source]({RESULT['url']}))."}
 
@@ -89,6 +89,7 @@ async def _answer(**overrides):
     kwargs = {
         "caller": "test",
         "provider": "claude_code",
+        "agent_model": "claude-sonnet-5-5",
         "instructions": "",
         "cached_prefix": "BRIEF ",
         "user_prompt": "CURRENT QUESTION: did it hold?",

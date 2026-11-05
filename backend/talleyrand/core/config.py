@@ -156,7 +156,10 @@ class Settings(BaseSettings):
     claude_code_executable: str = Field(default="claude", description="The `claude` CLI to run")
     claude_code_model: str = Field(
         default="sonnet",
-        description="Model alias passed to `claude --model` for every Claude Code call",
+        description=(
+            "Model passed to `claude --model` for the agent's own work (kickstart, "
+            "suggestions, summaries, reports, naming); answers run the model they name"
+        ),
     )
     hermes_executable: str = Field(default="hermes", description="The `hermes` CLI to run")
     hermes_provider: str = Field(
@@ -165,7 +168,10 @@ class Settings(BaseSettings):
     )
     hermes_model: str = Field(
         default="gpt-6-astra",
-        description="Model passed to `hermes chat --model` for every Hermes call",
+        description=(
+            "Model passed to `hermes chat --model` for the agent's own work; answers run "
+            "the model they name"
+        ),
     )
     kagi_api_key: str = Field(
         default="",
