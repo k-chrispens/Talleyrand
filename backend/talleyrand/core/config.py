@@ -3,13 +3,12 @@ Configuration settings for the Talleyrand backend.
 Should be split in the future, so that each app registers its own settings.
 """
 
-import secrets
-from typing import Literal, Self
+from typing import Literal
 
-from pydantic import AnyUrl, EmailStr, Field, HttpUrl, model_validator
+from pydantic import AnyUrl, EmailStr, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# The one frontend a local session serves (start-local.sh runs it here).
+# The one frontend a session serves (start-local.sh runs it here).
 LOCAL_FRONTEND_ORIGIN = "http://localhost:3000"
 
 
@@ -26,76 +25,6 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
-    )
-
-    # JWT Settings
-    # Required (at least 32 characters) unless local_mode is on; checked in
-    # _check_mode below rather than by a field constraint, so local mode can
-    # leave it unset.
-    jwt_secret_key: str = Field(
-        default="",
-        description=(
-            "Secret key used for signing JWT tokens. "
-            "Must be a unique random value per deployment, generated with `openssl rand -hex 32`."
-        ),
-    )
-    jwt_algorithm: str = Field(
-        default="HS256",
-        description="Algorithm used for JWT encoding/decoding",
-    )
-    jwt_access_token_expire_minutes: int = Field(
-        default=1440,
-        description="Expiration time for JWT access tokens in minutes",
-    )
-    jwt_refresh_token_expire_days: int = Field(
-        default=7,
-        description="Expiration time for JWT refresh tokens in days",
-    )
-
-    # Google OAuth Settings. Required unless local_mode is on (see _check_mode).
-    google_client_id: str = Field(default="", description="Google OAuth client ID")
-    google_client_secret: str = Field(default="", description="Google OAuth client secret")
-    google_redirect_uri: HttpUrl | None = Field(
-        default=None,
-        description="Redirect URI for Google OAuth callbacks",
-    )
-    google_token_url: HttpUrl = Field(
-        default=HttpUrl("https://oauth2.googleapis.com/token"),
-        description="URL to obtain Google OAuth tokens",
-    )
-    google_userinfo_url: HttpUrl = Field(
-        default=HttpUrl("https://www.googleapis.com/oauth2/v2/userinfo"),
-        description="URL to fetch user info from Google",
-    )
-    auth_failure_redirect: HttpUrl = Field(
-        default=HttpUrl("http://localhost:3000/auth/failure"),
-        description="Frontend URL to redirect after successful authentication",
-    )
-
-    # CORS Settings
-    cors_origins: list[str] = Field(
-        default_factory=lambda: [
-            "http://localhost:3000",
-        ],
-        description="List of allowed CORS origins",
-    )
-
-    email_whitelist_enabled: bool = Field(
-        default=False,
-        description="Whether to enable email whitelist checking",
-    )
-
-    email_whitelist: list[EmailStr] = Field(
-        default_factory=lambda: [
-            "example@example.com",
-        ],
-        description="List of allowed emails",
-    )
-
-    # Cookie Settings (used for oauth_state cookie only)
-    cookie_secure: bool = Field(
-        default=True,
-        description="Whether cookies should be marked as secure",
     )
 
     mongodb_url: AnyUrl = Field(
@@ -130,33 +59,27 @@ class Settings(BaseSettings):
         description="Log full LLM responses to console",
     )
 
-    # Local mode: one person running Talleyrand on their own machine
-    # (./start-local.sh). Sign-in is replaced by one fixed user, so the server
-    # must only be reachable from this machine: bind to 127.0.0.1, and main.py
-    # refuses requests naming any other host.
-    local_mode: bool = Field(
-        default=False,
-        description="Skip Google sign-in and act as local_user_email. Never enable on a server.",
-    )
     local_user_email: EmailStr = Field(
         default="local@example.com",
         description=(
-            "Who the local session acts as. Cases belong to an email, so setting this to "
-            "the address you signed in with before opens the cases you already have."
+            "Who the session acts as. Cases belong to an email, so setting this to the "
+            "address you signed in with on a hosted Talleyrand opens the cases you had there."
         ),
     )
-    agent_backend: Literal["claude_code", "hermes"] | None = Field(
-        default=None,
+    agent_backend: Literal["claude_code", "hermes"] = Field(
+        default="claude_code",
         description=(
-            "The locally signed-in agent CLI that runs kickstart, suggestions, summaries, "
-            "reports and naming instead of API keys. Answers run on whichever agent the "
-            "question's model names. Requires local_mode."
+            "The signed-in agent CLI that runs kickstart, suggestions, summaries, reports "
+            "and naming. Answers run on whichever agent the question's model names."
         ),
     )
     claude_code_executable: str = Field(default="claude", description="The `claude` CLI to run")
     claude_code_model: str = Field(
-        default="claude-opus-5-5",
-        description="Model alias passed to `claude --model` for every Claude Code call",
+        default="sonnet",
+        description=(
+            "Model passed to `claude --model` for the agent's own work (kickstart, "
+            "suggestions, summaries, reports, naming); answers run the model they name"
+        ),
     )
     claude_code_effort: str = Field(
         default="medium",
@@ -169,7 +92,10 @@ class Settings(BaseSettings):
     )
     hermes_model: str = Field(
         default="gpt-6-astra",
-        description="Model passed to `hermes chat --model` for every Hermes call",
+        description=(
+            "Model passed to `hermes chat --model` for the agent's own work; answers run "
+            "the model they name"
+        ),
     )
     hermes_reasoning: str = Field(
         default="medium",
@@ -178,8 +104,15 @@ class Settings(BaseSettings):
     kagi_api_key: str = Field(
         default="",
         description=(
-            "Kagi Search API key. Agent answers with web search on search through Kagi "
-            "(billed per query); without it they say search is unavailable."
+            "Kagi Search API key, for answers searching through Kagi (billed per query); "
+            "without it they say search is unavailable."
+        ),
+    )
+    mixedbread_api_key: str = Field(
+        default="",
+        description=(
+            "Mixedbread API key, for answers searching through Mixedbread's web store "
+            "(billed per search); without it they say search is unavailable."
         ),
     )
     agent_timeout_seconds: float = Field(
@@ -195,34 +128,6 @@ class Settings(BaseSettings):
             "subscription usage windows."
         ),
     )
-
-    @model_validator(mode="after")
-    def _check_mode(self) -> Self:
-        if self.agent_backend and not self.local_mode:
-            raise ValueError("agent_backend requires local_mode (start with ./start-local.sh)")
-        if self.local_mode:
-            # ponytail: a fresh key per process — it only signs the local user's
-            # stream tickets, which a restart would drop anyway.
-            if not self.jwt_secret_key:
-                self.jwt_secret_key = secrets.token_hex(32)
-            # With no sign-in, an allowed origin can act as the operator. Only
-            # the frontend the session serves qualifies, whatever a .env shared
-            # with a hosted-style setup lists.
-            self.cors_origins = [LOCAL_FRONTEND_ORIGIN]
-            return self
-        missing = [
-            name
-            for name in ("google_client_id", "google_client_secret", "google_redirect_uri")
-            if not getattr(self, name)
-        ]
-        if missing:
-            raise ValueError(f"{', '.join(missing)} must be set unless local_mode is on")
-        if len(self.jwt_secret_key) < 32:
-            raise ValueError(
-                "jwt_secret_key must be at least 32 characters; "
-                "generate one with `openssl rand -hex 32`"
-            )
-        return self
 
 
 settings = Settings()

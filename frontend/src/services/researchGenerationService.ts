@@ -1,8 +1,9 @@
 import type { components } from '../api/schema';
 import {
   client,
-  createJobStreamUrl,
+  getSearchProvider,
   getVerbosity,
+  jobStreamUrl,
   isParentSummaryEnabled,
   isWebSearchEnabled,
 } from '../client';
@@ -224,6 +225,7 @@ class ResearchGenerationService {
           background,
           force,
           webSearchEnabled: isWebSearchEnabled(),
+          searchProvider: getSearchProvider(),
           verbosity: getVerbosity(),
           cheatSheet: isParentSummaryEnabled(),
         },
@@ -384,24 +386,9 @@ class ResearchGenerationService {
   }
 
   /** Resolves once the replayed job state has been applied (or the socket closed). */
-  private async connect(graphId: string, gen: number): Promise<void> {
-    // Each connection is opened with its own freshly minted ticket; an
-    // expired session surfaces here as a 401, which the HTTP layer turns
-    // into a refresh or the re-login flow.
-    let url: string | null;
-    try {
-      url = await createJobStreamUrl(graphId);
-    } catch (err) {
-      if (gen !== this.generation) return;
-      console.error('Failed to open the live answer stream:', err);
-      this.reconnectLater(graphId, gen);
-      return;
-    }
-    if (gen !== this.generation) return;
-    if (url === null) return; // case deleted, or the session is over
-
+  private connect(graphId: string, gen: number): Promise<void> {
     return new Promise(resolve => {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(jobStreamUrl(graphId));
       this.ws = ws;
       // Terminal events before the 'synced' marker replay history; only
       // completions after it were watched live (and count as read).
@@ -425,8 +412,6 @@ class ResearchGenerationService {
         if (closeEvent.code === 4004) {
           return; // graph deleted; no stream to reconnect to
         }
-        // 4001 (the ticket expired in flight) is a reconnect like any other:
-        // minting the next ticket is what decides whether the session lives.
         this.reconnectLater(graphId, gen);
       };
     });

@@ -37,10 +37,13 @@ class ClaudeCodeError(AgentError):
     setup_hint = "Install Claude Code and sign in with `claude auth login`."
 
 
-async def run(*, system_prompt: str, prompt: str, json_schema: dict | None = None) -> dict:
+async def run(
+    *, system_prompt: str, prompt: str, json_schema: dict | None = None, model: str | None = None
+) -> dict:
     """
-    Run one `claude -p` call and return its terminal `result` event, with the
-    model its init event reported (the alias resolved) added as "model".
+    Run one `claude -p` call on model (default settings.claude_code_model) and
+    return its terminal `result` event, with the model its init event reported
+    (the alias resolved) added as "model".
     """
     args = [
         settings.claude_code_executable,
@@ -57,7 +60,7 @@ async def run(*, system_prompt: str, prompt: str, json_schema: dict | None = Non
         "stream-json",
         "--verbose",
         "--model",
-        settings.claude_code_model,
+        model or settings.claude_code_model,
         "--effort",
         settings.claude_code_effort,
         "--system-prompt",

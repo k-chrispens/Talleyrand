@@ -12,20 +12,13 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from talleyrand.core.config import LOCAL_FRONTEND_ORIGIN, settings
 from talleyrand.core.llm import StructuredGenerationError
-from talleyrand.features.auth_jwt.router import require_auth
-from talleyrand.features.auth_jwt.router import router as auth_jwt_router
-from talleyrand.features.demo_cases.seed import seed_demo_cases
 from talleyrand.features.graph.router import router as graph_router
-from talleyrand.features.oauth_google.app import router as oauth_google_router
 from talleyrand.features.research.generation.manager import manager as generation_manager
 from talleyrand.features.research.router import router as research_router
-from talleyrand.features.share.router import router as share_router
-from talleyrand.features.transcription.router import router as transcription_router
 from talleyrand.infra.body_limit import BodySizeLimitMiddleware
 from talleyrand.infra.db import lifespan_db
 from talleyrand.infra.local_only import LocalOnlyMiddleware
 from talleyrand.infra.log_redaction import install_query_string_redaction
-from talleyrand.models.user import User
 
 logging.basicConfig(level=settings.logging_level)
 
@@ -33,7 +26,6 @@ logging.basicConfig(level=settings.logging_level)
 logging.getLogger("pymongo").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("openai").setLevel(logging.WARNING)
 
 # Request URLs are logged; query strings can carry credentials. Never log them.
 install_query_string_redaction()
@@ -42,9 +34,7 @@ install_query_string_redaction()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    # Startup: Initialize MongoDB and seed the landing page's shared demo cases
-    async with lifespan_db() as (_, db):
-        await seed_demo_cases(db)
+    async with lifespan_db():
         yield
         # Shutdown: stop generation tasks; MongoDB client is closed automatically
         await generation_manager.shutdown()
@@ -65,28 +55,25 @@ app.add_middleware(BodySizeLimitMiddleware)
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=[LOCAL_FRONTEND_ORIGIN],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-def apply_local_mode(app: FastAPI, email: str) -> None:
+def apply_local_boundary(app: FastAPI) -> None:
     """
-    Sign every request in as one local user, and accept only requests from
-    this machine that a web page elsewhere could not have sent. With no
-    sign-in, that is the whole boundary (see infra/local_only.py). The
-    server also binds to 127.0.0.1 (pdm run local), but nothing relies on it.
+    Accept only requests from this machine that a web page elsewhere could
+    not have sent. Every request acts as the operator (infra/local_user.py),
+    so this is the whole boundary (see infra/local_only.py). The server also
+    binds to 127.0.0.1 (start-local.sh), but nothing relies on it.
     """
-    local_user = User(id="local", email=email, name="Local")
-    app.dependency_overrides[require_auth] = lambda: local_user
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
     app.add_middleware(LocalOnlyMiddleware, allowed_origins=[LOCAL_FRONTEND_ORIGIN])
 
 
-if settings.local_mode:
-    apply_local_mode(app, settings.local_user_email)
+apply_local_boundary(app)
 
 
 # A failed structured LLM call is the caller's provider problem (bad key,
@@ -99,12 +86,8 @@ async def structured_generation_error_handler(
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
-app.include_router(oauth_google_router)
 app.include_router(graph_router)
-app.include_router(auth_jwt_router)
-app.include_router(share_router)
 app.include_router(research_router)
-app.include_router(transcription_router)
 
 
 @app.get("/health")

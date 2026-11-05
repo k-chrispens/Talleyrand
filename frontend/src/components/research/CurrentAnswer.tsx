@@ -1,9 +1,7 @@
 import { FC, RefObject, useEffect, useRef } from 'react';
-import { isProviderKeyConfigured } from '../../client';
-import { modelProvider, PROVIDER_LABELS, type ModelProvider } from '../../config/models';
+import { PROVIDER_LABELS, type ModelProvider } from '../../config/models';
 import { useNodeContentStore } from '../../stores/nodeContentStore';
 import { useResearchStore } from '../../stores/researchStore';
-import { useUIStateStore } from '../../stores/uiStateStore';
 import { researchGenerationService } from '../../services/researchGenerationService';
 import { ThinkingDots } from '../ui/ThinkingDots';
 import { AnswerSources } from './AnswerSources';
@@ -28,19 +26,12 @@ export const CurrentAnswer: FC<CurrentAnswerProps> = ({ nodeId, scrollContainerR
   const sources = useNodeContentStore(s => s.nodeContents[nodeId]?.sources);
   const sourcesFound = useNodeContentStore(s => s.nodeContents[nodeId]?.sourcesFound);
   const execution = useNodeContentStore(s => s.nodeContents[nodeId]?.execution);
-  const selectedModel = useNodeContentStore(s => s.nodeContents[nodeId]?.selectedModel);
   const streamText = useResearchStore(s => s.streamTexts[nodeId] ?? '');
   const job = useResearchStore(s => s.jobs[nodeId]);
-  const settingsOpen = useUIStateStore(s => s.showSettingsModal);
-  const setShowSettingsModal = useUIStateStore(s => s.setShowSettingsModal);
   const isRead = useResearchStore(s => s.readHistory.some(event => event.nodeId === nodeId));
   const askQuestion = useResearchStore(s => s.askQuestion);
 
   const isStreaming = job?.status === 'streaming';
-  // Without the key this question's model needs, the generation cannot succeed:
-  // adding it — not retrying — is the way out of the error. Re-read whenever the
-  // settings modal opens or closes, so a key added there clears this at once.
-  const needsApiKey = !settingsOpen && !isProviderKeyConfigured(modelProvider(selectedModel));
   // A first answer still generating can be aborted back to the composer with
   // Esc (a regeneration, on an already-read node, cannot — it keeps its place).
   const canAbort = (isStreaming || job?.status === 'queued') && !isRead;
@@ -103,21 +94,9 @@ export const CurrentAnswer: FC<CurrentAnswerProps> = ({ nodeId, scrollContainerR
           <div className="mb-2 text-sm font-medium text-rose-700">Generation failed</div>
           <div className="mb-3 text-xs text-rose-600">{job.message}</div>
           <div className="flex items-center gap-2">
-            {needsApiKey && (
-              <button
-                onClick={() => setShowSettingsModal(true)}
-                className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700 transition-colors"
-              >
-                Add API key
-              </button>
-            )}
             <button
               onClick={() => researchGenerationService.retry(nodeId)}
-              className={
-                needsApiKey
-                  ? 'rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 transition-colors'
-                  : 'rounded-md bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700 transition-colors'
-              }
+              className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700 transition-colors"
             >
               Retry
             </button>

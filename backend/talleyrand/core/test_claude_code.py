@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from talleyrand.core import agent_cli, claude_code, llm
+from talleyrand.core import agent_cli, claude_code
 from talleyrand.core.claude_code import ClaudeCodeError
 from talleyrand.core.config import settings
 from talleyrand.core.llm import (
@@ -116,7 +116,6 @@ class _FakeClaude:
 @pytest.fixture
 def fake_claude(tmp_path, monkeypatch) -> _FakeClaude:
     fake = _FakeClaude(tmp_path)
-    monkeypatch.setattr(settings, "local_mode", True)
     monkeypatch.setattr(settings, "agent_backend", "claude_code")
     monkeypatch.setattr(settings, "claude_code_executable", str(fake.executable))
     monkeypatch.setattr(agent_cli, "CWD", tmp_path / "cwd")
@@ -277,16 +276,6 @@ async def test_cancelling_a_run_kills_its_whole_process_group(fake_claude):
     assert _is_dead(child)
 
 
-@pytest.mark.asyncio
-async def test_nothing_runs_outside_a_local_agent_session(fake_claude, monkeypatch):
-    # A hosted deployment must never spawn `claude`, whatever model id a
-    # request names.
-    monkeypatch.setattr(settings, "local_mode", False)
-    with pytest.raises(ClaudeCodeError, match="start-local"):
-        await claude_code.run(system_prompt="sys", prompt="hi")
-    assert not (fake_claude.directory / "last_call.json").exists()
-
-
 # --- routing in core/llm.py -------------------------------------------------
 
 
@@ -294,25 +283,14 @@ class NameSchema(BaseModel):
     name: str
 
 
-@pytest.fixture
-def no_openai(monkeypatch):
-    def refuse(*args, **kwargs):
-        raise AssertionError("an OpenAI client was constructed in a Claude Code session")
-
-    monkeypatch.setattr(llm, "AsyncOpenAI", refuse)
-
-
 @pytest.mark.asyncio
-async def test_structured_calls_run_on_claude_code_with_no_openai_key(fake_claude, no_openai):
+async def test_structured_calls_run_on_claude_code(fake_claude):
     fake_claude.structured({"name": "Cryo-EM build or buy"})
     parsed = await parse_structured(
         caller="test",
-        model="gpt-6-astra",
-        api_key="",
         system_prompt="Name the case.",
         user_content="A case about cryo-EM.",
         schema=NameSchema,
-        web_search_enabled=True,
     )
     assert parsed == NameSchema(name="Cryo-EM build or buy")
     args = fake_claude.last_call["args"]
@@ -320,46 +298,27 @@ async def test_structured_calls_run_on_claude_code_with_no_openai_key(fake_claud
 
 
 @pytest.mark.asyncio
-async def test_structured_output_that_breaks_the_schema_is_an_error(fake_claude, no_openai):
+async def test_structured_output_that_breaks_the_schema_is_an_error(fake_claude):
     fake_claude.structured({"title": "wrong field"})
     with pytest.raises(StructuredGenerationError, match="Claude Code"):
         await parse_structured(
             caller="test",
-            model="gpt-6-astra",
-            api_key="",
             system_prompt="Name the case.",
             user_content="A case.",
             schema=NameSchema,
         )
 
 
-@pytest.mark.asyncio
-async def test_structured_calls_with_pdfs_say_so_instead_of_dropping_them(fake_claude, no_openai):
-    with pytest.raises(StructuredGenerationError, match="PDF"):
-        await parse_structured(
-            caller="test",
-            model="gpt-6-astra",
-            api_key="",
-            system_prompt="Name the case.",
-            user_content=[
-                {"type": "input_text", "text": "A case."},
-                {"type": "input_file", "filename": "a.pdf", "file_data": "data:,"},
-            ],
-            schema=NameSchema,
-        )
-    assert not (fake_claude.directory / "last_call.json").exists()
-
-
 async def _answer(**overrides) -> list[str]:
     kwargs = {
         "caller": "test",
-        "model": get_model_config("claude-code"),
-        "api_key": "",
+        "model": get_model_config("claude-code-sonnet-5-5"),
         "instructions": "Answer.",
         "cached_prefix": "BRIEF ",
         "user_prompt": "QUESTION",
         "pdf_documents": [],
         "web_search_enabled": False,
+        "search_provider": "kagi",
         "verbosity": "low",
     } | overrides
     stream = await stream_text(**kwargs)
@@ -367,23 +326,25 @@ async def _answer(**overrides) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_an_answer_is_the_whole_prompt_answered_once(fake_claude, no_openai):
+async def test_an_answer_is_the_whole_prompt_answered_once(fake_claude):
     assert await _answer() == ["echo:BRIEF QUESTION"]
     args = fake_claude.last_call["args"]
     assert args[args.index("--system-prompt") + 1].startswith("Answer.")
+    # The preset's model, not settings.claude_code_model (the agent's own work).
+    assert args[args.index("--model") + 1] == "claude-sonnet-5-5"
 
 
 @pytest.mark.asyncio
-async def test_an_answer_reports_its_model_and_what_it_could_not_use(fake_claude, no_openai):
+async def test_an_answer_reports_its_model_and_what_it_could_not_use(fake_claude):
     stream = await stream_text(
         caller="test",
-        model=get_model_config("claude-code"),
-        api_key="",
+        model=get_model_config("claude-code-sonnet-5-5"),
         instructions="Answer.",
         cached_prefix="BRIEF ",
         user_prompt="QUESTION",
         pdf_documents=[PdfAttachment(filename="paper.pdf", data_uri="data:,")],
         web_search_enabled=True,
+        search_provider="kagi",
         verbosity="low",
     )
     execution, answer = [chunk async for chunk in stream]
@@ -394,7 +355,3 @@ async def test_an_answer_reports_its_model_and_what_it_could_not_use(fake_claude
     assert pdf.startswith("paper.pdf could not be read")
     # The notes stay out of the answer, which later prompts read back.
     assert answer == TextChunk("echo:BRIEF QUESTION")
-
-
-def test_claude_code_needs_no_api_key(fake_claude):
-    assert llm.resolve_api_key(get_model_config("claude-code"), "", "") == ""

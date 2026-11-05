@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from talleyrand.core import agent_cli, hermes, llm
+from talleyrand.core import agent_cli, hermes
 from talleyrand.core.config import settings
 from talleyrand.core.hermes import HermesError
 from talleyrand.core.llm import StructuredGenerationError, TextChunk, parse_structured, stream_text
@@ -87,19 +87,10 @@ class _FakeHermes:
 @pytest.fixture
 def fake_hermes(tmp_path, monkeypatch) -> _FakeHermes:
     fake = _FakeHermes(tmp_path)
-    monkeypatch.setattr(settings, "local_mode", True)
     monkeypatch.setattr(settings, "agent_backend", "hermes")
     monkeypatch.setattr(settings, "hermes_executable", str(fake.executable))
     monkeypatch.setattr(agent_cli, "CWD", tmp_path / "cwd")
     return fake
-
-
-@pytest.fixture
-def no_openai(monkeypatch):
-    def refuse(*args, **kwargs):
-        raise AssertionError("an OpenAI client was constructed in a Hermes session")
-
-    monkeypatch.setattr(llm, "AsyncOpenAI", refuse)
 
 
 class NameSchema(BaseModel):
@@ -165,26 +156,14 @@ async def test_the_providers_own_error_message_reaches_the_user(fake_hermes):
         await hermes.run(system_prompt="sys", prompt="hi")
 
 
-@pytest.mark.asyncio
-async def test_nothing_runs_outside_a_local_session(fake_hermes, monkeypatch):
-    monkeypatch.setattr(settings, "local_mode", False)
-    with pytest.raises(HermesError, match="start-local"):
-        await hermes.run(system_prompt="sys", prompt="hi")
-    assert fake_hermes.calls == []
-
-
 # --- structured output ------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_structured_calls_run_on_hermes_with_the_schema_in_the_instructions(
-    fake_hermes, no_openai
-):
+async def test_structured_calls_run_on_hermes_with_the_schema_in_the_instructions(fake_hermes):
     fake_hermes.replies('{"name": "Cryo-EM build or buy"}')
     parsed = await parse_structured(
         caller="test",
-        model="gpt-6-astra",
-        api_key="",
         system_prompt="Name the case.",
         user_content="A case about cryo-EM.",
         schema=NameSchema,
@@ -201,7 +180,7 @@ def test_a_fenced_json_reply_is_accepted():
 
 
 @pytest.mark.asyncio
-async def test_a_reply_that_breaks_the_schema_gets_one_repair_attempt(fake_hermes, no_openai):
+async def test_a_reply_that_breaks_the_schema_gets_one_repair_attempt(fake_hermes):
     fake_hermes.replies('{"title": "wrong field"}', '{"name": "Repaired"}')
     parsed = await hermes.run_structured(system_prompt="sys", prompt="A case.", schema=NameSchema)
     assert parsed == NameSchema(name="Repaired")
@@ -211,13 +190,11 @@ async def test_a_reply_that_breaks_the_schema_gets_one_repair_attempt(fake_herme
 
 
 @pytest.mark.asyncio
-async def test_a_second_bad_reply_is_an_error_not_a_third_call(fake_hermes, no_openai):
+async def test_a_second_bad_reply_is_an_error_not_a_third_call(fake_hermes):
     fake_hermes.replies("not json at all")
     with pytest.raises(StructuredGenerationError, match="Hermes"):
         await parse_structured(
             caller="test",
-            model="gpt-6-astra",
-            api_key="",
             system_prompt="sys",
             user_content="A case.",
             schema=NameSchema,
@@ -229,24 +206,23 @@ async def test_a_second_bad_reply_is_an_error_not_a_third_call(fake_hermes, no_o
 
 
 @pytest.mark.asyncio
-async def test_an_answer_runs_on_hermes_and_says_what_it_could_not_use(fake_hermes, no_openai):
+async def test_an_answer_runs_on_hermes_and_says_what_it_could_not_use(fake_hermes):
     stream = await stream_text(
         caller="test",
-        model=get_model_config("hermes"),
-        api_key="",
+        model=get_model_config("hermes-gpt-6-1-sol"),
         instructions="Answer.",
         cached_prefix="BRIEF ",
         user_prompt="QUESTION",
         pdf_documents=[],
         web_search_enabled=True,
+        search_provider="kagi",
         verbosity="low",
     )
     execution, answer = [chunk async for chunk in stream]
-    assert (execution.provider, execution.model) == ("hermes", settings.hermes_model)
+    # The preset's model, not settings.hermes_model (the agent's own work).
+    assert (execution.provider, execution.model) == ("hermes", "gpt-6.1-sol")
+    args = fake_hermes.calls[-1]["args"]
+    assert args[args.index("--model") + 1] == "gpt-6.1-sol"
     assert execution.notes[0].startswith("Web search did not run (it needs a Kagi API key")
     assert answer == TextChunk("echo:BRIEF QUESTION")
     assert fake_hermes.calls[0]["system"].startswith("Answer.")
-
-
-def test_hermes_needs_no_api_key(fake_hermes):
-    assert llm.resolve_api_key(get_model_config("hermes"), "", "") == ""
