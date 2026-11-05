@@ -61,6 +61,8 @@ async def run(
         "--verbose",
         "--model",
         model or settings.claude_code_model,
+        "--effort",
+        settings.claude_code_effort,
         "--system-prompt",
         system_prompt,
     ]

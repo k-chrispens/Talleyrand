@@ -81,6 +81,10 @@ class Settings(BaseSettings):
             "suggestions, summaries, reports, naming); answers run the model they name"
         ),
     )
+    claude_code_effort: str = Field(
+        default="medium",
+        description="Effort level passed to `claude --effort` for every Claude Code call",
+    )
     hermes_executable: str = Field(default="hermes", description="The `hermes` CLI to run")
     hermes_provider: str = Field(
         default="openai-codex",
@@ -92,6 +96,10 @@ class Settings(BaseSettings):
             "Model passed to `hermes chat --model` for the agent's own work; answers run "
             "the model they name"
         ),
+    )
+    hermes_reasoning: str = Field(
+        default="medium",
+        description="Reasoning effort passed to `hermes chat --reasoning` for every Hermes call",
     )
     kagi_api_key: str = Field(
         default="",
