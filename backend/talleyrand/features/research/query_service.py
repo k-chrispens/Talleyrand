@@ -8,6 +8,7 @@ from typing import Literal
 
 from talleyrand.core.llm import PdfAttachment, StreamChunk, stream_text
 from talleyrand.core.model_settings import get_model_config
+from talleyrand.core.web_search import SearchProvider
 from talleyrand.features.graph.dtos import GraphNoId
 from talleyrand.features.research.context_builder import (
     build_research_context,
@@ -25,6 +26,7 @@ async def do_research_query(
     node_id: str,
     graph: GraphNoId,
     web_search_enabled: bool = True,
+    search_provider: SearchProvider = "kagi",
     verbosity: Literal["low", "medium"] = "low",
 ) -> AsyncGenerator[StreamChunk, None]:
     """
@@ -68,5 +70,6 @@ async def do_research_query(
         user_prompt=context.body,
         pdf_documents=pdf_documents,
         web_search_enabled=web_search_enabled,
+        search_provider=search_provider,
         verbosity=verbosity,
     )

@@ -65,6 +65,7 @@ async def generate_answer(
         background=payload.background,
         params=AnswerParams(
             web_search_enabled=payload.web_search_enabled,
+            search_provider=payload.search_provider,
             verbosity=payload.verbosity,
             cheat_sheet=payload.cheat_sheet,
         ),

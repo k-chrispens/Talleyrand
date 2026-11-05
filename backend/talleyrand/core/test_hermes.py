@@ -214,6 +214,7 @@ async def test_an_answer_runs_on_hermes_and_says_what_it_could_not_use(fake_herm
         user_prompt="QUESTION",
         pdf_documents=[],
         web_search_enabled=True,
+        search_provider="kagi",
         verbosity="low",
     )
     execution, answer = [chunk async for chunk in stream]

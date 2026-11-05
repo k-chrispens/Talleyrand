@@ -5,6 +5,7 @@ API contracts for durable generation jobs.
 from datetime import datetime
 from typing import Literal
 
+from talleyrand.core.web_search import SearchProvider
 from talleyrand.features.graph.dtos import (
     BaseSchema,
     ExecutionDTO,
@@ -20,6 +21,7 @@ class GenerateAnswerRequestDTO(BaseSchema):
 
     background: bool = False
     web_search_enabled: bool = True
+    search_provider: SearchProvider = "kagi"
     verbosity: Literal["low", "medium"] = "low"
     # "Summarize parents" is on: also condense the thread above this question
     # into a cheat sheet, as a parallel job.

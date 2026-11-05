@@ -96,8 +96,15 @@ class Settings(BaseSettings):
     kagi_api_key: str = Field(
         default="",
         description=(
-            "Kagi Search API key. Agent answers with web search on search through Kagi "
-            "(billed per query); without it they say search is unavailable."
+            "Kagi Search API key, for answers searching through Kagi (billed per query); "
+            "without it they say search is unavailable."
+        ),
+    )
+    mixedbread_api_key: str = Field(
+        default="",
+        description=(
+            "Mixedbread API key, for answers searching through Mixedbread's web store "
+            "(billed per search); without it they say search is unavailable."
         ),
     )
     agent_timeout_seconds: float = Field(

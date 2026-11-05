@@ -116,6 +116,7 @@ async def test_stalled_stream_fails_job_instead_of_hanging(monkeypatch):
     record = new_answer_record("g1", "u1", "n1")
     params = AnswerParams(
         web_search_enabled=False,
+        search_provider="kagi",
         verbosity="low",
         cheat_sheet=False,
     )
@@ -167,6 +168,7 @@ async def test_completed_answer_carries_every_source_its_searches_found(monkeypa
     record = new_answer_record("g1", "u1", "n1")
     params = AnswerParams(
         web_search_enabled=True,
+        search_provider="mixedbread",
         verbosity="low",
         cheat_sheet=False,
     )
@@ -191,7 +193,10 @@ async def test_completed_answer_carries_every_source_its_searches_found(monkeypa
         yield TextChunk("EV sales grew 35%.")
         yield SourceChunk(WebSource(url="https://iea.org/report", cited=True))
 
-    async def _fake_query(**_kwargs):
+    asked: dict = {}
+
+    async def _fake_query(**kwargs):
+        asked.update(kwargs)
         return _stream()
 
     monkeypatch.setattr(manager_module, "do_research_query", _fake_query)
@@ -200,6 +205,8 @@ async def test_completed_answer_carries_every_source_its_searches_found(monkeypa
     mgr.attach("g1", channel)
     await mgr._run_answer(job)
 
+    # The search provider the request chose is the one the answer searches with.
+    assert (asked["web_search_enabled"], asked["search_provider"]) == (True, "mixedbread")
     answer = repo.complete_answer.await_args.args[1]
     sources = repo.complete_answer.await_args.args[3]
     assert answer == "EV sales grew 35%."
@@ -226,6 +233,7 @@ async def test_an_agent_answer_records_how_it_was_produced_apart_from_its_text(m
     record = new_answer_record("g1", "u1", "n1")
     params = AnswerParams(
         web_search_enabled=True,
+        search_provider="kagi",
         verbosity="low",
         cheat_sheet=False,
     )
@@ -288,6 +296,7 @@ async def test_case_is_released_once_the_answer_streams(monkeypatch):
     record = new_answer_record("g1", "u1", "n1")
     params = AnswerParams(
         web_search_enabled=False,
+        search_provider="kagi",
         verbosity="low",
         cheat_sheet=False,
     )
@@ -357,6 +366,7 @@ async def test_background_answers_beyond_the_cap_wait_their_turn(monkeypatch):
 
     params = AnswerParams(
         web_search_enabled=False,
+        search_provider="kagi",
         verbosity="low",
         cheat_sheet=False,
     )

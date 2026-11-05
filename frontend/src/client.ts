@@ -6,6 +6,12 @@ export const isWebSearchEnabled = (): boolean => {
   return localStorage.getItem('web_search_enabled') !== 'false';
 };
 
+export type SearchProvider = 'kagi' | 'mixedbread';
+
+// Which service answers search through; each needs its key in backend/.env.
+export const getSearchProvider = (): SearchProvider =>
+  localStorage.getItem('search_provider') === 'mixedbread' ? 'mixedbread' : 'kagi';
+
 // "Summarize parents": every answer generation also condenses the thread above
 // the question into a cheat sheet. Off unless the user turned it on.
 export const isParentSummaryEnabled = (): boolean => {

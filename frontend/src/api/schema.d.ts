@@ -464,6 +464,8 @@ export interface components {
              * @default true
              */
             webSearchEnabled: boolean;
+            /** @default kagi */
+            searchProvider: components["schemas"]["SearchProvider"];
             /**
              * Verbosity
              * @default low
@@ -925,6 +927,8 @@ export interface components {
              */
             ackedJobIds: string[];
         };
+        /** @enum {string} */
+        SearchProvider: "kagi" | "mixedbread";
         /**
          * SelectionDTO
          * @description A passage the user selected in the current question's answer.
