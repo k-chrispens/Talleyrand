@@ -115,8 +115,6 @@ async def test_stalled_stream_fails_job_instead_of_hanging(monkeypatch):
     mgr = GenerationJobManager()
     record = new_answer_record("g1", "u1", "n1")
     params = AnswerParams(
-        openai_api_key="k",
-        anthropic_api_key="",
         web_search_enabled=False,
         verbosity="low",
         cheat_sheet=False,
@@ -168,8 +166,6 @@ async def test_completed_answer_carries_every_source_its_searches_found(monkeypa
     mgr = GenerationJobManager()
     record = new_answer_record("g1", "u1", "n1")
     params = AnswerParams(
-        openai_api_key="k",
-        anthropic_api_key="",
         web_search_enabled=True,
         verbosity="low",
         cheat_sheet=False,
@@ -229,8 +225,6 @@ async def test_an_agent_answer_records_how_it_was_produced_apart_from_its_text(m
     mgr = GenerationJobManager()
     record = new_answer_record("g1", "u1", "n1")
     params = AnswerParams(
-        openai_api_key="",
-        anthropic_api_key="",
         web_search_enabled=True,
         verbosity="low",
         cheat_sheet=False,
@@ -293,8 +287,6 @@ async def test_case_is_released_once_the_answer_streams(monkeypatch):
     mgr = GenerationJobManager()
     record = new_answer_record("g1", "u1", "n1")
     params = AnswerParams(
-        openai_api_key="k",
-        anthropic_api_key="",
         web_search_enabled=False,
         verbosity="low",
         cheat_sheet=False,
@@ -364,8 +356,6 @@ async def test_background_answers_beyond_the_cap_wait_their_turn(monkeypatch):
     )
 
     params = AnswerParams(
-        openai_api_key="k",
-        anthropic_api_key="",
         web_search_enabled=False,
         verbosity="low",
         cheat_sheet=False,

@@ -35,12 +35,6 @@ class SuggestFollowupsRequestDTO(BaseSchema):
     request_more: bool = False
 
 
-class StreamTicketDTO(BaseSchema):
-    """A short-lived credential for opening one case's job event stream."""
-
-    ticket: str
-
-
 class JobDTO(BaseSchema):
     """A generation job with its effective status and any terminal payload."""
 

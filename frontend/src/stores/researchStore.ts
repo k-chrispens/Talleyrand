@@ -9,7 +9,7 @@ import type {
   ResearchSuggestion,
   TextSelection,
 } from '../types';
-import { offerableModelId } from '../config/models';
+import { resolveModelId } from '../config/models';
 import { isParentSummaryEnabled } from '../client';
 import { useGraphStructureStore, generateEdgeId, type GraphNode } from './graphStructureStore';
 import { useNodeContentStore } from './nodeContentStore';
@@ -187,7 +187,7 @@ const emptyPersistedState: ResearchPersistedState = {
 };
 
 function initialDefaultModel(): ModelType {
-  return offerableModelId(localStorage.getItem('default_model'));
+  return resolveModelId(localStorage.getItem('default_model'));
 }
 
 export const useResearchStore = create<ResearchStore>()(

@@ -54,7 +54,7 @@ def sent(monkeypatch):
 async def test_an_agent_answer_reads_the_pdf_text_as_a_document(sent):
     treaty = _pdf_doc("treaty", _text_pdf("Signed at Vienna"))
 
-    await query_service.do_research_query(NODE, _graph("claude-code-sonnet-5-5", [treaty]), "", "")
+    await query_service.do_research_query(NODE, _graph("claude-code-sonnet-5-5", [treaty]))
 
     assert "- treaty.pdf: Signed at Vienna" in sent["cached_prefix"]
     assert sent["pdf_documents"] == []
@@ -64,21 +64,9 @@ async def test_an_agent_answer_reads_the_pdf_text_as_a_document(sent):
 async def test_an_unreadable_pdf_is_left_for_the_answer_to_mention(sent):
     scan = _pdf_doc("scan", _blank_pdf())
 
-    await query_service.do_research_query(NODE, _graph("hermes-gpt-6-astra", [scan]), "", "")
+    await query_service.do_research_query(NODE, _graph("hermes-gpt-6-astra", [scan]))
 
     assert [doc.filename for doc in sent["pdf_documents"]] == ["scan.pdf"]
-
-
-@pytest.mark.asyncio
-async def test_an_api_answer_still_gets_the_pdf_itself(sent):
-    treaty = _pdf_doc("treaty", _text_pdf("Signed at Vienna"))
-
-    await query_service.do_research_query(
-        NODE, _graph("gpt-6-astra-medium", [treaty]), "sk-test", ""
-    )
-
-    assert "Signed at Vienna" not in sent["cached_prefix"]
-    assert [doc.filename for doc in sent["pdf_documents"]] == ["treaty.pdf"]
 
 
 @pytest.mark.asyncio
@@ -107,20 +95,18 @@ async def test_the_answer_names_the_pdfs_it_could_not_read(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_kickstart_on_an_agent_inlines_the_pdf_text(monkeypatch):
-    monkeypatch.setattr(kickstart.settings, "agent_backend", "claude_code")
+async def test_kickstart_inlines_the_pdf_text():
     treaty = _pdf_doc("treaty", _text_pdf("Signed at Vienna"))
 
-    content = await kickstart._user_content(["NOTES:\nx"], [treaty], api_key="", system_prompt="")
+    content = await kickstart._user_content(["NOTES:\nx"], [treaty], system_prompt="")
 
     assert isinstance(content, str)
     assert "- treaty.pdf: Signed at Vienna" in content
 
 
 @pytest.mark.asyncio
-async def test_kickstart_on_an_agent_refuses_an_unreadable_pdf(monkeypatch):
-    monkeypatch.setattr(kickstart.settings, "agent_backend", "hermes")
+async def test_kickstart_refuses_an_unreadable_pdf():
     locked = _pdf_doc("locked", _blank_pdf(password="secret"))
 
     with pytest.raises(llm.StructuredGenerationError, match="locked.pdf .*password"):
-        await kickstart._user_content(["NOTES:\nx"], [locked], api_key="", system_prompt="")
+        await kickstart._user_content(["NOTES:\nx"], [locked], system_prompt="")

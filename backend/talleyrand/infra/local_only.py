@@ -1,5 +1,5 @@
 """
-The boundary that replaces sign-in in local mode (see main.apply_local_mode).
+The boundary that replaces sign-in (see main.apply_local_boundary).
 
 With every request signed in as the operator, what keeps strangers out has to
 come from the request itself, not from how the server was launched:

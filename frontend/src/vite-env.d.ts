@@ -1,9 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** Analytics measurement ID. Absent on a deployment that collects nothing. */
-  readonly VITE_GA_MEASUREMENT_ID?: string;
-  /** "claude_code" or "hermes" in a local session (./start-local.sh); absent otherwise. */
+  /** "claude_code" or "hermes": the agent ./start-local.sh started the backend on. */
   readonly VITE_AGENT_BACKEND?: string;
 }
 

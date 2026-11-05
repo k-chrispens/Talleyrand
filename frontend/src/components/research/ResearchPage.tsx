@@ -7,7 +7,6 @@ import {
   questionPath,
   resolveQuestionUrlId,
 } from '../../routes/paths';
-import { AGENT_BACKEND } from '../../config/constants';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { SettingsModal } from '../SettingsModal';
 import { Sidebar } from '../Sidebar';
@@ -103,13 +102,6 @@ export const ResearchPage: FC = () => {
   }, [graphId, navigate]);
 
   useEffect(() => {
-    // API-key gate: suggestions, kickstarts and reports all run on OpenAI,
-    // so the app is unusable without that key specifically — except in a
-    // local Claude Code session, which runs them on the CLI
-    if (!AGENT_BACKEND && !localStorage.getItem('openai_api_key')) {
-      setShowSettingsModal(true);
-    }
-
     // The graph selector is "usually hidden" in the research view
     setShowSidebar(false);
 

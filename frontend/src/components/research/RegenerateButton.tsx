@@ -4,7 +4,7 @@ import {
   MODELS,
   isRetiredModel,
   modelLabel,
-  offerableModelId,
+  resolveModelId,
 } from '../../config/models';
 import { researchGenerationService } from '../../services/researchGenerationService';
 import { useNodeContentStore } from '../../stores/nodeContentStore';
@@ -19,7 +19,7 @@ import type { ModelType } from '../../types';
 export const RegenerateButton: FC<{ nodeId: string }> = ({ nodeId }) => {
   const answeredBy = useNodeContentStore(s => s.nodeContents[nodeId]?.selectedModel);
   const [open, setOpen] = useState(false);
-  const [model, setModel] = useState<ModelType>(() => offerableModelId(answeredBy));
+  const [model, setModel] = useState<ModelType>(() => resolveModelId(answeredBy));
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -43,7 +43,7 @@ export const RegenerateButton: FC<{ nodeId: string }> = ({ nodeId }) => {
 
   const toggleOpen = () => {
     if (!open) {
-      setModel(offerableModelId(answeredBy));
+      setModel(resolveModelId(answeredBy));
     }
     setOpen(!open);
   };
@@ -76,7 +76,7 @@ export const RegenerateButton: FC<{ nodeId: string }> = ({ nodeId }) => {
         {answeredLabel}
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 z-30 mb-1.5 w-64 overflow-hidden rounded-lg border border-stone-200 bg-white shadow-xl">
+        <div className="absolute bottom-full left-0 z-30 mb-1.5 w-80 overflow-hidden rounded-lg border border-stone-200 bg-white shadow-xl">
           <div className="border-b border-stone-100 bg-stone-50 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-stone-400">
             Regenerate with
           </div>

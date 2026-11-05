@@ -3,8 +3,8 @@ In-memory runtime for generation jobs.
 
 One process-global manager owns every running job task, the per-user background
 queue, and the per-graph event channels. Job results are persisted as records
-(records.py); the runtime holds only what must not be persisted (API keys) or
-is reconstructible (stream buffers).
+(records.py); the runtime holds only what is reconstructible (stream buffers)
+and each job's request settings.
 
 Ordering guarantees relied upon by the protocol:
 - registry entries are inserted synchronously before the first await of a start,
@@ -74,8 +74,6 @@ STREAM_STALLED_ERROR = "The model stopped responding. Please retry."
 
 @dataclass
 class AnswerParams:
-    openai_api_key: str
-    anthropic_api_key: str
     web_search_enabled: bool
     verbosity: Literal["low", "medium"]
     # "Summarize parents": condense the thread above this question into a cheat
@@ -86,13 +84,7 @@ class AnswerParams:
 
 @dataclass
 class SuggestionParams:
-    openai_api_key: str
     request_more: bool
-
-
-@dataclass
-class CheatSheetParams:
-    openai_api_key: str
 
 
 @dataclass
@@ -101,7 +93,6 @@ class RuntimeJob:
     background: bool
     answer_params: AnswerParams | None = None
     suggestion_params: SuggestionParams | None = None
-    cheat_sheet_params: CheatSheetParams | None = None
     chunks: list[str] = field(default_factory=list)
     pending: str = ""
     task: asyncio.Task | None = None
@@ -376,7 +367,6 @@ class GenerationJobManager:
                     graph_id=graph_id,
                     user_id=record.user_id,
                     node_id=node_id,
-                    params=CheatSheetParams(openai_api_key=params.openai_api_key),
                 )
 
             # The model writes cross-links as outline numbers against the tree
@@ -390,8 +380,6 @@ class GenerationJobManager:
             stream = await do_research_query(
                 node_id=node_id,
                 graph=graph,
-                openai_api_key=params.openai_api_key,
-                anthropic_api_key=params.anthropic_api_key,
                 web_search_enabled=params.web_search_enabled,
                 verbosity=params.verbosity,
             )
@@ -541,14 +529,12 @@ class GenerationJobManager:
                     for r in await repo.get_for_graph(record.graph_id)
                     if r.kind == "answer" and r.status == "error" and r.node_id is not None
                 }
-                placed = await get_big_picture_suggestions(
-                    graph, params.openai_api_key, failed_node_ids=failed_node_ids
-                )
+                placed = await get_big_picture_suggestions(graph, failed_node_ids=failed_node_ids)
                 questions = [(str(q.parent_node_id), q.question) for q in placed]
                 cap, big_picture = BIG_PICTURE_CAP, True
             else:
                 parsed = await get_research_suggestions(
-                    graph, UUID(record.node_id or ""), params.request_more, params.openai_api_key
+                    graph, UUID(record.node_id or ""), params.request_more
                 )
                 questions = [(record.node_id or "", text) for text in parsed.questions]
                 cap, big_picture = FOLLOWUP_CAP, False
@@ -597,13 +583,13 @@ class GenerationJobManager:
     # --- cheat-sheet jobs ----------------------------------------------------
 
     async def start_cheat_sheet_job(
-        self, *, graph_id: str, user_id: str, node_id: str, params: CheatSheetParams
+        self, *, graph_id: str, user_id: str, node_id: str
     ) -> GenerationJobRecord:
         """Start a cheat-sheet generation for a question; the task spawns once
         the record is persisted. Unlike answers this is not deduplicated per
         node: a second run is a deliberate refresh and its result supersedes."""
         record = new_cheat_sheet_record(graph_id, user_id, node_id)
-        job = RuntimeJob(record=record, background=True, cheat_sheet_params=params)
+        job = RuntimeJob(record=record, background=True)
         self.jobs[record.id] = job
         try:
             await self._job_repo().insert(record)
@@ -616,8 +602,6 @@ class GenerationJobManager:
 
     async def _run_cheat_sheet(self, job: RuntimeJob) -> None:
         record = job.record
-        params = job.cheat_sheet_params
-        assert params is not None
         repo = self._job_repo()
 
         try:
@@ -641,9 +625,7 @@ class GenerationJobManager:
                 )
                 return
 
-            markdown = await generate_cheat_sheet(
-                graph, record.node_id or "", params.openai_api_key
-            )
+            markdown = await generate_cheat_sheet(graph, record.node_id or "")
             # The model cites source questions by outline number against the
             # tree it was shown; persist them as node ids, like answers, so
             # later tree edits can't silently re-target a link.
